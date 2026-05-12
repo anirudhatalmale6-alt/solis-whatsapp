@@ -253,6 +253,48 @@ function parseDateTimeStr(str) {
   return { date, time }
 }
 
+function validateBookingTime(dateStr, timeStr, schedule) {
+  if (!schedule || Object.keys(schedule).length === 0) return { valid: true }
+
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+  // Parse the date to get day of week
+  const parts = dateStr.split('-')
+  const dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+  const dayName = dayNames[dateObj.getDay()]
+  const daySchedule = schedule[dayName]
+
+  // Check if past date
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  if (dateObj < today) {
+    return { valid: false, reason: `That date has already passed. Please choose a future date.` }
+  }
+
+  // Check if closed that day
+  if (!daySchedule || daySchedule.enabled === false || daySchedule.off === true) {
+    const openDays = dayNames.filter(d => {
+      const ds = schedule[d]
+      return ds && ds.enabled !== false && ds.off !== true
+    }).map(d => d.charAt(0).toUpperCase() + d.slice(1))
+    return { valid: false, reason: `Sorry, we're closed on ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}.\n\nWe're open on:\n${openDays.join(', ')}\n\nPlease choose another date.` }
+  }
+
+  // Check time within working hours
+  const openTime = daySchedule.open || daySchedule.start || '09:00'
+  const closeTime = daySchedule.close || daySchedule.end || '17:00'
+
+  const bookingMinutes = parseInt(timeStr.split(':')[0]) * 60 + parseInt(timeStr.split(':')[1])
+  const openMinutes = parseInt(openTime.split(':')[0]) * 60 + parseInt(openTime.split(':')[1] || '0')
+  const closeMinutes = parseInt(closeTime.split(':')[0]) * 60 + parseInt(closeTime.split(':')[1] || '0')
+
+  if (bookingMinutes < openMinutes || bookingMinutes >= closeMinutes) {
+    return { valid: false, reason: `Sorry, that time is outside our working hours.\n\nOn ${dayName.charAt(0).toUpperCase() + dayName.slice(1)} we're open from *${openTime}* to *${closeTime}*.\n\nPlease choose a time within these hours.` }
+  }
+
+  return { valid: true }
+}
+
 // ── Rate limiter ──
 const recentReplies = new Map()
 
@@ -339,8 +381,16 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
       reply = mainMenu(bizName)
       setConv(convKey, 'menu')
     } else if (t.length >= 3) {
-      setConv(convKey, 'confirm_booking', { service: conv.service, name: conv.name, dateTime: t })
-      reply = `Please confirm your booking:\n\n📋 Service: ${formatServiceLine(conv.service)}\n👤 Name: ${conv.name}\n📅 Date/Time: ${t}\n🏥 At: ${bizName}\n\nIs this correct?\n\nReply *Yes* to confirm or *No* to cancel`
+      const parsed = parseDateTimeStr(t)
+      const scheduleData = schedule?.monday ? schedule : (schedule || {})
+      const validation = validateBookingTime(parsed.date, parsed.time, scheduleData)
+      if (!validation.valid) {
+        reply = `⚠️ ${validation.reason}\n\nPlease type a new *date and time*.\n\nExample: 16/5/2026 2:30pm\n\nOr reply *No* to cancel.`
+        setConv(convKey, 'ask_date', { service: conv.service, name: conv.name })
+      } else {
+        setConv(convKey, 'confirm_booking', { service: conv.service, name: conv.name, dateTime: t })
+        reply = `Please confirm your booking:\n\n📋 Service: ${formatServiceLine(conv.service)}\n👤 Name: ${conv.name}\n📅 Date/Time: ${t}\n🏥 At: ${bizName}\n\nIs this correct?\n\nReply *Yes* to confirm or *No* to cancel`
+      }
     } else {
       reply = `Please type your preferred date and time.\n\nExample: Tomorrow 3pm\n\nOr reply *No* to cancel.`
     }

@@ -216,6 +216,14 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
 
   let reply = ''
 
+  // ── Global reset: "menu", "start", "restart", "0" always goes back to menu ──
+  if (/^(menu|start|restart|reset|back|0|main)$/i.test(t)) {
+    reply = mainMenu(bizName)
+    setConv(convKey, 'menu')
+    await sock.sendMessage(jid, { text: reply })
+    return
+  }
+
   // ── Handle based on conversation state ──
 
   if (conv?.state === 'pick_service') {
@@ -279,19 +287,27 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
     }
   }
 
-  else if (conv?.state === 'menu') {
-    reply = handleMenuChoice(lo, bizName, services, biz, schedule)
-    if (reply.nextState) {
-      setConv(convKey, reply.nextState)
-      reply = reply.text
+  else if (conv?.state === 'menu' || conv?.state === 'after_prices' || conv?.state === 'after_hours' || conv?.state === 'after_location') {
+    if ((conv?.state === 'after_prices' || conv?.state === 'after_hours' || conv?.state === 'after_location') && isYes(t)) {
+      const sResult = showServices(bizName, services, true)
+      setConv(convKey, sResult.nextState || 'menu')
+      reply = sResult.text
+    } else if (isNo(t) && conv?.state !== 'menu') {
+      reply = mainMenu(bizName)
+      setConv(convKey, 'menu')
     } else {
-      reply = reply.text
+      const result = handleMenuChoice(lo, bizName, services, biz, schedule)
+      if (result.nextState) {
+        setConv(convKey, result.nextState)
+      } else {
+        setConv(convKey, 'menu')
+      }
+      reply = result.text
     }
   }
 
   // ── No active conversation or fresh message ──
   else {
-    // Check for direct intents even without state
     const result = handleMenuChoice(lo, bizName, services, biz, schedule)
     if (result.nextState) {
       setConv(convKey, result.nextState)
@@ -373,6 +389,7 @@ function showPrices(bizName, services) {
   if (list) {
     return {
       text: `💰 Prices at ${bizName}:\n\n${list}\n\nWould you like to book any of these?\n\nReply *Yes* or *No*`,
+      nextState: 'after_prices'
     }
   }
   return { text: `Pricing information coming soon! Contact us for details.\n\nWould you like to see the menu?\n\nReply *Yes* or *No*` }
@@ -381,7 +398,7 @@ function showPrices(bizName, services) {
 function showHours(bizName, biz, schedule) {
   const hours = formatHours(biz, schedule)
   if (hours) {
-    return { text: `🕐 Opening hours at ${bizName}:\n\n${hours}\nWould you like to book an appointment?\n\nReply *Yes* or *No*` }
+    return { text: `🕐 Opening hours at ${bizName}:\n\n${hours}\nWould you like to book an appointment?\n\nReply *Yes* or *No*`, nextState: 'after_hours' }
   }
   return { text: `Our opening hours are not set yet. Please contact us directly!\n\nWould you like to see the menu?\n\nReply *Yes* or *No*` }
 }
@@ -389,7 +406,7 @@ function showHours(bizName, biz, schedule) {
 function showLocation(bizName, biz) {
   const loc = formatLocation(biz)
   if (loc) {
-    return { text: `📍 Find us at:\n${loc}\n\nWould you like to book a visit?\n\nReply *Yes* or *No*` }
+    return { text: `📍 Find us at:\n${loc}\n\nWould you like to book a visit?\n\nReply *Yes* or *No*`, nextState: 'after_location' }
   }
   return { text: `Our location details are not set yet. Please contact us directly!\n\nWould you like to see the menu?\n\nReply *Yes* or *No*` }
 }

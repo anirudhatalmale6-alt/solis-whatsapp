@@ -50,28 +50,28 @@ function detectLanguage(text) {
 function detectIntent(text) {
   const t = text.toLowerCase().trim()
 
-  if (/\b(book|books|booking|bookings|appointment|appointments|schedule|reserve|reservation|slot|slots|available|availability|when can|tomorrow|today|time)\b/.test(t))
+  if (/\b(book|books|booking|bookings|appointment|appointments|schedule|reserve|reservation|slot|slots|available|availability|when can|tomorrow|today|time|follow.?up|check.?up|checkup|visit|come in|walk.?in|consultation|consult|session|rendez.?vous|cita|موعد|حجز|rdv)\b/.test(t))
     return 'booking'
-  if (/\b(price|prices|pricing|cost|costs|how much|rate|rates|fee|fees|charge|charges|tarif|tarifs|tariff)\b/.test(t))
+  if (/\b(price|prices|pricing|cost|costs|how much|rate|rates|fee|fees|charge|charges|tarif|tarifs|tariff|pay|payment|invoice|facture|سعر|اسعار|كم|prix|combien|precio|cuanto)\b/.test(t))
     return 'pricing'
-  if (/\b(service|services|what do you|what can|offer|offers|menu|treatment|treatments|list|result|results|catalog|catalogue)\b/.test(t))
+  if (/\b(service|services|what do you|what can|offer|offers|menu|treatment|treatments|list|result|results|catalog|catalogue|do you do|can you do|what.*available|lab|lab work|labs|test|tests|testing|exam|procedure|procedures|haircut|cut|trim|style|styling|massage|facial|manicure|pedicure|wash|color|colour|dye|خدم|servicio|prestation)\b/.test(t))
     return 'services'
-  if (/\b(hour|hours|open|close|opening|closing|working|when are|what time|timing|timings)\b/.test(t))
+  if (/\b(hour|hours|open|close|opening|closing|working|when are|what time|timing|timings|horaire|horario|ساعات|وقت|مواعيد)\b/.test(t))
     return 'hours'
-  if (/\b(cancel|cancellation|reschedule|change|move|postpone)\b/.test(t))
+  if (/\b(cancel|cancellation|reschedule|change|move|postpone|annuler|cancelar|الغاء)\b/.test(t))
     return 'cancel'
-  if (/\b(where|address|location|directions|find you|map|gps)\b/.test(t))
+  if (/\b(where|address|location|directions|find you|map|gps|عنوان|موقع|adresse|direccion|ubicacion)\b/.test(t))
     return 'location'
-  if (/\b(hi|hello|hey|good morning|good afternoon|good evening|howdy|sup|salam|salut|bonjour|hola)\b/.test(t))
+  if (/\b(hi|hello|hey|good morning|good afternoon|good evening|howdy|sup|salam|salut|bonjour|hola|مرحبا|اهلا|السلام)\b/.test(t))
     return 'greeting'
-  if (/\b(thank|thanks|thx|cheers|appreciate|merci|gracias|shukran)\b/.test(t))
+  if (/\b(thank|thanks|thx|cheers|appreciate|merci|gracias|shukran|شكرا)\b/.test(t))
     return 'thanks'
-  if (/\b(help|support|problem|issue|question)\b/.test(t))
+  if (/\b(help|support|problem|issue|question|info|information|details|مساعدة|aide|ayuda)\b/.test(t))
     return 'help'
-  if (/\b(yes|yeah|yep|sure|ok|okay|confirm|perfect|great|sounds good|that works|go ahead|done|let's go|absolutely)\b/.test(t))
+  if (/\b(yes|yeah|yep|sure|ok|okay|confirm|perfect|great|sounds good|that works|go ahead|done|let's go|absolutely|oui|si|نعم|اكيد|تمام)\b/.test(t))
     return 'confirm'
 
-  return 'unknown'
+  return 'services'
 }
 
 function formatServices(services) {
@@ -103,7 +103,8 @@ function getAvailableSlots(schedule) {
 
 function generateResponse(intent, businessData, lang) {
   const biz = businessData.business_info || {}
-  const bizName = biz.name || 'our business'
+  const rawName = biz.name || 'our business'
+  const bizName = rawName.charAt(0).toUpperCase() + rawName.slice(1)
   const services = businessData.services || []
   const schedule = businessData.schedule || {}
 
@@ -132,7 +133,7 @@ function generateResponse(intent, businessData, lang) {
         if (serviceList) {
           return `Here's what we offer at ${bizName}:\n\n${serviceList}\n\nInterested in any of these? I can book you in!`
         }
-        return `We offer a range of services at ${bizName}. What are you looking for? I'll check what's available for you.`
+        return `Thanks for your interest in ${bizName}! 😊\n\nI'd love to help you. Could you tell me a bit more about what you need? For example:\n\n📅 Want to book? Tell me the date and time\n💰 Need pricing? Ask about any specific service\n🕐 Opening hours? Just ask!\n\nI'm here to help with anything!`
       })(),
 
       hours: (() => {

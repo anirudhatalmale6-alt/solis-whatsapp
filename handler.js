@@ -238,6 +238,20 @@ function generateResponse(intent, businessData, lang) {
   return langResponses[intent] || enResponses[intent] || enResponses['unknown']
 }
 
+function findMatchingService(text, services) {
+  if (!services || !Array.isArray(services) || services.length === 0) return null
+  const t = text.toLowerCase().trim()
+  for (const s of services) {
+    if (!s.name) continue
+    const sName = s.name.toLowerCase()
+    if (t === sName) return s
+    if (t.includes(sName) || sName.includes(t)) {
+      if (t.length >= 3) return s
+    }
+  }
+  return null
+}
+
 const recentReplies = new Map()
 
 async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid, supabaseUrl, supabaseKey }) {
@@ -256,6 +270,21 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
 
   const businessData = await fetchBusinessData(supabaseUrl, supabaseKey, businessId)
   const lang = detectLanguage(text)
+
+  const matchedService = findMatchingService(text, businessData.services || [])
+  if (matchedService) {
+    const biz = businessData.business_info || {}
+    const bizName = (biz.name || 'our business').charAt(0).toUpperCase() + (biz.name || 'our business').slice(1)
+    let line = `${matchedService.name}`
+    if (matchedService.duration) line += ` (${matchedService.duration} min)`
+    if (matchedService.price) line += ` - $${matchedService.price}`
+
+    const response = `Great choice! ✅ You selected:\n\n📋 ${line}\n\nTo book this at ${bizName}, please share:\n\n1️⃣ Your full name\n2️⃣ Preferred date\n3️⃣ Preferred time\n\nI'll confirm your appointment right away!`
+    console.log(`[MSG] ${businessId} | ${senderPhone} | matched_service="${matchedService.name}" | "${text.slice(0, 50)}"`)
+    await sock.sendMessage(jid, { text: response })
+    return
+  }
+
   const intent = detectIntent(text)
 
   console.log(`[MSG] ${businessId} | ${senderPhone} | lang=${lang} intent=${intent} | "${text.slice(0, 50)}"`)

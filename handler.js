@@ -33,6 +33,42 @@ async function fetchBusinessData(supabaseUrl, supabaseKey, businessId) {
     }
   } catch {}
 
+  if (!data.services || !Array.isArray(data.services) || data.services.length === 0) {
+    try {
+      const resp = await fetch(
+        `${supabaseUrl}/rest/v1/services?business_id=eq.${businessId}&select=*`,
+        {
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'apikey': supabaseKey,
+          }
+        }
+      )
+      if (resp.ok) {
+        const rows = await resp.json()
+        if (rows.length > 0) data.services = rows
+      }
+    } catch {}
+  }
+
+  if (!data.schedule || Object.keys(data.schedule).length === 0) {
+    try {
+      const resp = await fetch(
+        `${supabaseUrl}/rest/v1/schedules?business_id=eq.${businessId}&select=*`,
+        {
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'apikey': supabaseKey,
+          }
+        }
+      )
+      if (resp.ok) {
+        const rows = await resp.json()
+        if (rows[0]) data.schedule = rows[0]
+      }
+    } catch {}
+  }
+
   return data
 }
 

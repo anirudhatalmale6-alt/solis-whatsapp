@@ -238,6 +238,23 @@ function generateResponse(intent, businessData, lang) {
   return langResponses[intent] || enResponses[intent] || enResponses['unknown']
 }
 
+function detectBookingDetails(text, services) {
+  const t = text.toLowerCase()
+  const hasDate = /\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{1,2}\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s*\d{0,4}|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/i.test(t)
+  const hasTime = /\b(\d{1,2}[:\.]?\d{0,2}\s*(am|pm|h)|at\s+\d{1,2})\b/i.test(t)
+  const matchedService = findMatchingService(text, services)
+  const lines = text.split(/[\n,]+/).map(l => l.trim()).filter(Boolean)
+  const hasName = lines.length >= 2 && /^[a-zA-Z؀-ۿÀ-ɏ\s]{2,}$/.test(lines[0])
+
+  if (matchedService && (hasDate || hasTime) && hasName) {
+    return { name: lines[0], service: matchedService, raw: text }
+  }
+  if (matchedService && hasDate) {
+    return { service: matchedService, raw: text }
+  }
+  return null
+}
+
 function findMatchingService(text, services) {
   if (!services || !Array.isArray(services) || services.length === 0) return null
   const t = text.toLowerCase().trim()
@@ -270,11 +287,33 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
 
   const businessData = await fetchBusinessData(supabaseUrl, supabaseKey, businessId)
   const lang = detectLanguage(text)
+  const servicesList = businessData.services || []
+  const biz = businessData.business_info || {}
+  const bizName = (biz.name || 'our business').charAt(0).toUpperCase() + (biz.name || 'our business').slice(1)
 
-  const matchedService = findMatchingService(text, businessData.services || [])
+  const bookingDetails = detectBookingDetails(text, servicesList)
+  if (bookingDetails && bookingDetails.name) {
+    let sLine = bookingDetails.service.name
+    if (bookingDetails.service.duration) sLine += ` (${bookingDetails.service.duration} min)`
+    if (bookingDetails.service.price) sLine += ` - $${bookingDetails.service.price}`
+    const response = `Booking confirmed! 🎉\n\n📋 Service: ${sLine}\n👤 Name: ${bookingDetails.name}\n📅 Details from your message received\n\nThank you for choosing ${bizName}! We've noted your appointment request. You'll receive a confirmation shortly.\n\nNeed to change anything? Just let me know!`
+    console.log(`[MSG] ${businessId} | ${senderPhone} | booking_confirmed="${bookingDetails.service.name}" | "${text.slice(0, 50)}"`)
+    await sock.sendMessage(jid, { text: response })
+    return
+  }
+
+  if (bookingDetails && bookingDetails.service) {
+    let sLine = bookingDetails.service.name
+    if (bookingDetails.service.duration) sLine += ` (${bookingDetails.service.duration} min)`
+    if (bookingDetails.service.price) sLine += ` - $${bookingDetails.service.price}`
+    const response = `Almost there! ✅\n\n📋 ${sLine}\n📅 Date received\n\nCould you also share your name so I can confirm the booking?`
+    console.log(`[MSG] ${businessId} | ${senderPhone} | booking_partial="${bookingDetails.service.name}" | "${text.slice(0, 50)}"`)
+    await sock.sendMessage(jid, { text: response })
+    return
+  }
+
+  const matchedService = findMatchingService(text, servicesList)
   if (matchedService) {
-    const biz = businessData.business_info || {}
-    const bizName = (biz.name || 'our business').charAt(0).toUpperCase() + (biz.name || 'our business').slice(1)
     let line = `${matchedService.name}`
     if (matchedService.duration) line += ` (${matchedService.duration} min)`
     if (matchedService.price) line += ` - $${matchedService.price}`

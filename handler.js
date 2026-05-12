@@ -72,51 +72,45 @@ async function fetchBusinessData(supabaseUrl, supabaseKey, businessId) {
   return data
 }
 
-function detectLanguage(text) {
-  const arabicRegex = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/
-  if (arabicRegex.test(text)) return 'ar'
-  const t = text.toLowerCase()
-  const frenchWords = ['bonjour', 'salut', 'merci', 'comment', 'rendez', 'coiffeur', 'coupe', 'prix', 'combien', 'reserver', 'réserver']
-  if (frenchWords.some(w => t.includes(w))) return 'fr'
-  const spanishWords = ['hola', 'gracias', 'cita', 'reservar', 'precio', 'corte', 'quiero', 'necesito', 'cuando']
-  if (spanishWords.some(w => t.includes(w))) return 'es'
-  return 'en'
+// ── Conversation state per user ──
+// States: greeting, menu, services, pick_service, confirm_service, ask_name, ask_date, confirm_booking, done
+const conversations = new Map()
+const CONV_TIMEOUT = 30 * 60 * 1000 // 30 min
+
+function getConv(key) {
+  const c = conversations.get(key)
+  if (c && Date.now() - c.updated < CONV_TIMEOUT) return c
+  return null
 }
 
-function detectIntent(text) {
-  const t = text.toLowerCase().trim()
-
-  if (/\b(book|books|booking|bookings|appointment|appointments|schedule|reserve|reservation|slot|slots|available|availability|when can|tomorrow|today|time|follow.?up|check.?up|checkup|visit|come in|walk.?in|consultation|consult|session|rendez.?vous|cita|موعد|حجز|rdv)\b/.test(t))
-    return 'booking'
-  if (/\b(price|prices|pricing|cost|costs|how much|rate|rates|fee|fees|charge|charges|tarif|tarifs|tariff|pay|payment|invoice|facture|سعر|اسعار|كم|prix|combien|precio|cuanto)\b/.test(t))
-    return 'pricing'
-  if (/\b(service|services|what do you|what can|offer|offers|menu|treatment|treatments|list|result|results|catalog|catalogue|do you do|can you do|what.*available|lab|lab work|labs|test|tests|testing|exam|procedure|procedures|haircut|cut|trim|style|styling|massage|facial|manicure|pedicure|wash|color|colour|dye|خدم|servicio|prestation)\b/.test(t))
-    return 'services'
-  if (/\b(hour|hours|open|close|opening|closing|working|when are|what time|timing|timings|horaire|horario|ساعات|وقت|مواعيد)\b/.test(t))
-    return 'hours'
-  if (/\b(cancel|cancellation|reschedule|change|move|postpone|annuler|cancelar|الغاء)\b/.test(t))
-    return 'cancel'
-  if (/\b(where|address|location|directions|find you|map|gps|عنوان|موقع|adresse|direccion|ubicacion)\b/.test(t))
-    return 'location'
-  if (/\b(hi|hello|hey|good morning|good afternoon|good evening|howdy|sup|salam|salut|bonjour|hola|مرحبا|اهلا|السلام)\b/.test(t))
-    return 'greeting'
-  if (/\b(thank|thanks|thx|cheers|appreciate|merci|gracias|shukran|شكرا)\b/.test(t))
-    return 'thanks'
-  if (/\b(help|support|problem|issue|question|info|information|details|مساعدة|aide|ayuda)\b/.test(t))
-    return 'help'
-  if (/\b(yes|yeah|yep|sure|ok|okay|confirm|perfect|great|sounds good|that works|go ahead|done|let's go|absolutely|oui|si|نعم|اكيد|تمام)\b/.test(t))
-    return 'confirm'
-
-  return 'services'
+function setConv(key, state, extra = {}) {
+  conversations.set(key, { state, ...extra, updated: Date.now() })
+  if (conversations.size > 10000) {
+    const cutoff = Date.now() - CONV_TIMEOUT
+    for (const [k, v] of conversations) {
+      if (v.updated < cutoff) conversations.delete(k)
+    }
+  }
 }
 
-function formatServices(services) {
-  if (!services || !Array.isArray(services) || services.length === 0) return null
+function clearConv(key) { conversations.delete(key) }
 
+// ── Helpers ──
+
+function isYes(t) {
+  return /^(yes|yeah|yep|yea|y|sure|ok|okay|oui|si|نعم|اكيد|تمام|da|ja|1)$/i.test(t.trim())
+}
+
+function isNo(t) {
+  return /^(no|nah|nope|non|لا|nie|nein|2)$/i.test(t.trim())
+}
+
+function formatServiceList(services) {
+  if (!services || services.length === 0) return null
   return services
     .filter(s => s.name)
-    .map(s => {
-      let line = `• ${s.name}`
+    .map((s, i) => {
+      let line = `${i + 1}. ${s.name}`
       if (s.duration) line += ` (${s.duration} min)`
       if (s.price) line += ` - $${s.price}`
       return line
@@ -124,152 +118,74 @@ function formatServices(services) {
     .join('\n')
 }
 
-function getAvailableSlots(schedule) {
-  if (!schedule) return null
-
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-  const today = new Date()
-  const dayName = days[today.getDay()]
-
-  const todaySchedule = schedule[dayName.toLowerCase()] || schedule[dayName]
-  if (!todaySchedule || todaySchedule.off) return null
-
-  return todaySchedule
+function formatServiceLine(s) {
+  let line = s.name
+  if (s.duration) line += ` (${s.duration} min)`
+  if (s.price) line += ` - $${s.price}`
+  return line
 }
 
-function generateResponse(intent, businessData, lang) {
-  const biz = businessData.business_info || {}
-  const rawName = biz.name || 'our business'
-  const bizName = rawName.charAt(0).toUpperCase() + rawName.slice(1)
-  const services = businessData.services || []
-  const schedule = businessData.schedule || {}
+function findServiceByInput(text, services) {
+  if (!services || services.length === 0) return null
+  const t = text.trim()
 
-  const translations = {
-    en: {
-      greeting: `Hi there! 👋 Welcome to ${bizName}. I'm your AI assistant and I'm here to help you 24/7.\n\nI can help you with:\n📅 Booking an appointment\n💰 Service prices\n🕐 Opening hours\n📍 Location\n\nWhat would you like to know?`,
-
-      booking: (() => {
-        const serviceList = formatServices(services)
-        if (serviceList) {
-          return `I'd love to help you book an appointment at ${bizName}! 📅\n\nHere are our services:\n${serviceList}\n\nWhich service are you interested in, and what day/time works best for you?`
-        }
-        return `I'd love to help you book an appointment at ${bizName}! 📅\n\nWhat service are you looking for, and when would you like to come in?`
-      })(),
-
-      pricing: (() => {
-        const serviceList = formatServices(services)
-        if (serviceList) {
-          return `Here are our prices at ${bizName}:\n\n${serviceList}\n\nWould you like to book any of these?`
-        }
-        return `For pricing information at ${bizName}, please let me know which service you're interested in and I'll get you the details!`
-      })(),
-
-      services: (() => {
-        const serviceList = formatServices(services)
-        if (serviceList) {
-          return `Here's what we offer at ${bizName}:\n\n${serviceList}\n\nInterested in any of these? I can book you in!`
-        }
-        return `Thanks for your interest in ${bizName}! 😊\n\nI'd love to help you. Could you tell me a bit more about what you need? For example:\n\n📅 Want to book? Tell me the date and time\n💰 Need pricing? Ask about any specific service\n🕐 Opening hours? Just ask!\n\nI'm here to help with anything!`
-      })(),
-
-      hours: (() => {
-        if (biz.schedule || Object.keys(schedule).length > 0) {
-          const s = biz.schedule || schedule
-          let lines = `Our opening hours at ${bizName}:\n\n`
-          const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-          for (const day of days) {
-            const d = s[day]
-            if (d && !d.off && d.start) {
-              lines += `${day.charAt(0).toUpperCase() + day.slice(1)}: ${d.start} - ${d.end}\n`
-            } else if (d?.off) {
-              lines += `${day.charAt(0).toUpperCase() + day.slice(1)}: Closed\n`
-            }
-          }
-          return lines + '\nWould you like to book an appointment?'
-        }
-        return `For our opening hours at ${bizName}, feel free to ask and I'll check for you! Would you like to book an appointment?`
-      })(),
-
-      location: (() => {
-        const parts = []
-        if (biz.address) parts.push(biz.address)
-        if (biz.city) parts.push(biz.city)
-        if (biz.country) parts.push(biz.country)
-        if (parts.length > 0) {
-          return `📍 You can find us at:\n${parts.join(', ')}\n\nNeed directions or want to book a visit?`
-        }
-        return `For our location details, please let me know and I'll help you find us!`
-      })(),
-
-      cancel: `I understand you'd like to cancel or reschedule. No problem at all!\n\nCould you give me your name and the date of your appointment? I'll sort it out for you right away.`,
-
-      thanks: `You're welcome! 😊 If you need anything else, just message me anytime. Have a great day! 👋`,
-
-      confirm: `Great! ✅ Let me get that sorted for you. Could you share:\n\n1. Your name\n2. Preferred date and time\n3. The service you'd like\n\nI'll confirm your booking right away!`,
-
-      help: `I'm here to help! At ${bizName}, I can assist you with:\n\n📅 Booking appointments\n💰 Pricing information\n🕐 Opening hours\n📍 Our location\n🔄 Rescheduling or cancellations\n\nJust let me know what you need!`,
-
-      unknown: `Thanks for your message! I'm the AI assistant for ${bizName}. I can help you with:\n\n📅 Bookings - just say "book"\n💰 Prices - just say "prices"\n🕐 Hours - just say "hours"\n\nOr tell me what you're looking for and I'll do my best to help!`,
-    },
-
-    fr: {
-      greeting: `Bonjour ! 👋 Bienvenue chez ${bizName}. Je suis votre assistant IA, disponible 24h/24.\n\nJe peux vous aider avec :\n📅 Prendre rendez-vous\n💰 Nos tarifs\n🕐 Horaires d'ouverture\n📍 Adresse\n\nQue puis-je faire pour vous ?`,
-      booking: `Je serais ravi de vous aider à réserver chez ${bizName} ! 📅\n\nQuel service vous intéresse et quand souhaitez-vous venir ?`,
-      pricing: `Pour les tarifs de ${bizName}, n'hésitez pas à me demander le service qui vous intéresse !`,
-      unknown: `Merci pour votre message ! Je suis l'assistant IA de ${bizName}. Dites "réserver", "prix" ou "horaires" et je vous aide tout de suite !`,
-    },
-
-    es: {
-      greeting: `¡Hola! 👋 Bienvenido a ${bizName}. Soy tu asistente de IA, disponible 24/7.\n\nPuedo ayudarte con:\n📅 Reservar una cita\n💰 Precios\n🕐 Horarios\n📍 Ubicación\n\n¿En qué puedo ayudarte?`,
-      booking: `¡Me encantaría ayudarte a reservar en ${bizName}! 📅\n\n¿Qué servicio te interesa y cuándo te gustaría venir?`,
-      pricing: `Para los precios de ${bizName}, dime qué servicio te interesa y te doy los detalles.`,
-      unknown: `¡Gracias por tu mensaje! Soy el asistente de IA de ${bizName}. Di "reservar", "precios" u "horarios" y te ayudo enseguida.`,
-    },
-
-    ar: {
-      greeting: `مرحباً! 👋 أهلاً بك في ${bizName}. أنا مساعدك الذكي، متاح 24/7.\n\nيمكنني مساعدتك في:\n📅 حجز موعد\n💰 الأسعار\n🕐 أوقات العمل\n📍 الموقع\n\nكيف يمكنني مساعدتك؟`,
-      unknown: `شكراً لرسالتك! أنا المساعد الذكي لـ ${bizName}. قل "حجز" أو "أسعار" أو "مواعيد" وسأساعدك فوراً!`,
-    },
+  // Try number first
+  const num = parseInt(t)
+  if (!isNaN(num) && num >= 1 && num <= services.length) {
+    return services[num - 1]
   }
 
-  const langResponses = translations[lang] || translations['en']
-  const enResponses = translations['en']
-
-  return langResponses[intent] || enResponses[intent] || enResponses['unknown']
-}
-
-function detectBookingDetails(text, services) {
-  const t = text.toLowerCase()
-  const hasDate = /\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{1,2}\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s*\d{0,4}|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/i.test(t)
-  const hasTime = /\b(\d{1,2}[:\.]?\d{0,2}\s*(am|pm|h)|at\s+\d{1,2})\b/i.test(t)
-  const matchedService = findMatchingService(text, services)
-  const lines = text.split(/[\n,]+/).map(l => l.trim()).filter(Boolean)
-  const hasName = lines.length >= 2 && /^[a-zA-Z؀-ۿÀ-ɏ\s]{2,}$/.test(lines[0])
-
-  if (matchedService && (hasDate || hasTime) && hasName) {
-    return { name: lines[0], service: matchedService, raw: text }
+  // Try exact name match
+  const lo = t.toLowerCase()
+  for (const s of services) {
+    if (!s.name) continue
+    if (s.name.toLowerCase() === lo) return s
   }
-  if (matchedService && hasDate) {
-    return { service: matchedService, raw: text }
-  }
-  return null
-}
 
-function findMatchingService(text, services) {
-  if (!services || !Array.isArray(services) || services.length === 0) return null
-  const t = text.toLowerCase().trim()
+  // Try partial match
   for (const s of services) {
     if (!s.name) continue
     const sName = s.name.toLowerCase()
-    if (t === sName) return s
-    if (t.includes(sName) || sName.includes(t)) {
-      if (t.length >= 3) return s
+    if (lo.includes(sName) || sName.includes(lo)) {
+      if (lo.length >= 3) return s
     }
   }
   return null
 }
 
+function getBizName(biz) {
+  const raw = biz?.name || 'our business'
+  return raw.charAt(0).toUpperCase() + raw.slice(1)
+}
+
+function formatHours(biz, schedule) {
+  const s = biz?.schedule || schedule || {}
+  if (Object.keys(s).length === 0) return null
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+  let lines = ''
+  for (const day of days) {
+    const d = s[day]
+    if (d && !d.off && d.start) {
+      lines += `${day.charAt(0).toUpperCase() + day.slice(1)}: ${d.start} - ${d.end}\n`
+    } else if (d?.off) {
+      lines += `${day.charAt(0).toUpperCase() + day.slice(1)}: Closed\n`
+    }
+  }
+  return lines || null
+}
+
+function formatLocation(biz) {
+  const parts = []
+  if (biz?.address) parts.push(biz.address)
+  if (biz?.city) parts.push(biz.city)
+  if (biz?.country) parts.push(biz.country)
+  return parts.length > 0 ? parts.join(', ') : null
+}
+
+// ── Rate limiter ──
 const recentReplies = new Map()
+
+// ── Main handler ──
 
 async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid, supabaseUrl, supabaseKey }) {
   const replyKey = `${businessId}:${senderPhone}`
@@ -286,51 +202,196 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
   }
 
   const businessData = await fetchBusinessData(supabaseUrl, supabaseKey, businessId)
-  const lang = detectLanguage(text)
-  const servicesList = businessData.services || []
   const biz = businessData.business_info || {}
-  const bizName = (biz.name || 'our business').charAt(0).toUpperCase() + (biz.name || 'our business').slice(1)
+  const bizName = getBizName(biz)
+  const services = businessData.services || []
+  const schedule = businessData.schedule || {}
+  const t = text.trim()
+  const lo = t.toLowerCase()
 
-  const bookingDetails = detectBookingDetails(text, servicesList)
-  if (bookingDetails && bookingDetails.name) {
-    let sLine = bookingDetails.service.name
-    if (bookingDetails.service.duration) sLine += ` (${bookingDetails.service.duration} min)`
-    if (bookingDetails.service.price) sLine += ` - $${bookingDetails.service.price}`
-    const response = `Booking confirmed! 🎉\n\n📋 Service: ${sLine}\n👤 Name: ${bookingDetails.name}\n📅 Details from your message received\n\nThank you for choosing ${bizName}! We've noted your appointment request. You'll receive a confirmation shortly.\n\nNeed to change anything? Just let me know!`
-    console.log(`[MSG] ${businessId} | ${senderPhone} | booking_confirmed="${bookingDetails.service.name}" | "${text.slice(0, 50)}"`)
-    await sock.sendMessage(jid, { text: response })
-    return
+  const convKey = replyKey
+  const conv = getConv(convKey)
+
+  console.log(`[MSG] ${businessId} | ${senderPhone} | state=${conv?.state || 'none'} | "${t.slice(0, 60)}"`)
+
+  let reply = ''
+
+  // ── Handle based on conversation state ──
+
+  if (conv?.state === 'pick_service') {
+    const picked = findServiceByInput(t, services)
+    if (picked) {
+      setConv(convKey, 'confirm_service', { service: picked })
+      reply = `You selected:\n\n📋 ${formatServiceLine(picked)}\n\nWould you like to book this service?\n\nReply *Yes* or *No*`
+    } else if (isNo(t)) {
+      reply = mainMenu(bizName)
+      setConv(convKey, 'menu')
+    } else {
+      reply = `I didn't find that service. Please reply with the *number* from the list above.\n\nOr reply *No* to go back to the menu.`
+    }
   }
 
-  if (bookingDetails && bookingDetails.service) {
-    let sLine = bookingDetails.service.name
-    if (bookingDetails.service.duration) sLine += ` (${bookingDetails.service.duration} min)`
-    if (bookingDetails.service.price) sLine += ` - $${bookingDetails.service.price}`
-    const response = `Almost there! ✅\n\n📋 ${sLine}\n📅 Date received\n\nCould you also share your name so I can confirm the booking?`
-    console.log(`[MSG] ${businessId} | ${senderPhone} | booking_partial="${bookingDetails.service.name}" | "${text.slice(0, 50)}"`)
-    await sock.sendMessage(jid, { text: response })
-    return
+  else if (conv?.state === 'confirm_service') {
+    if (isYes(t)) {
+      setConv(convKey, 'ask_name', { service: conv.service })
+      reply = `Great! 📝\n\nPlease type your *full name*:`
+    } else if (isNo(t)) {
+      reply = mainMenu(bizName)
+      setConv(convKey, 'menu')
+    } else {
+      reply = `Please reply *Yes* to book or *No* to go back.`
+    }
   }
 
-  const matchedService = findMatchingService(text, servicesList)
-  if (matchedService) {
-    let line = `${matchedService.name}`
-    if (matchedService.duration) line += ` (${matchedService.duration} min)`
-    if (matchedService.price) line += ` - $${matchedService.price}`
-
-    const response = `Great choice! ✅ You selected:\n\n📋 ${line}\n\nTo book this at ${bizName}, please share:\n\n1️⃣ Your full name\n2️⃣ Preferred date\n3️⃣ Preferred time\n\nI'll confirm your appointment right away!`
-    console.log(`[MSG] ${businessId} | ${senderPhone} | matched_service="${matchedService.name}" | "${text.slice(0, 50)}"`)
-    await sock.sendMessage(jid, { text: response })
-    return
+  else if (conv?.state === 'ask_name') {
+    if (isNo(t)) {
+      reply = mainMenu(bizName)
+      setConv(convKey, 'menu')
+    } else if (t.length >= 2 && /[a-zA-Z؀-ۿÀ-ɏ]/.test(t)) {
+      setConv(convKey, 'ask_date', { service: conv.service, name: t })
+      reply = `Thanks ${t}! 👋\n\nPlease type your *preferred date and time*.\n\nExample: 16/5/2026 2:30pm`
+    } else {
+      reply = `Please type your full name.\n\nOr reply *No* to cancel.`
+    }
   }
 
-  const intent = detectIntent(text)
+  else if (conv?.state === 'ask_date') {
+    if (isNo(t)) {
+      reply = mainMenu(bizName)
+      setConv(convKey, 'menu')
+    } else if (t.length >= 3) {
+      setConv(convKey, 'confirm_booking', { service: conv.service, name: conv.name, dateTime: t })
+      reply = `Please confirm your booking:\n\n📋 Service: ${formatServiceLine(conv.service)}\n👤 Name: ${conv.name}\n📅 Date/Time: ${t}\n🏥 At: ${bizName}\n\nIs this correct?\n\nReply *Yes* to confirm or *No* to cancel`
+    } else {
+      reply = `Please type your preferred date and time.\n\nExample: Tomorrow 3pm\n\nOr reply *No* to cancel.`
+    }
+  }
 
-  console.log(`[MSG] ${businessId} | ${senderPhone} | lang=${lang} intent=${intent} | "${text.slice(0, 50)}"`)
+  else if (conv?.state === 'confirm_booking') {
+    if (isYes(t)) {
+      clearConv(convKey)
+      reply = `✅ Booking Confirmed!\n\n📋 ${formatServiceLine(conv.service)}\n👤 ${conv.name}\n📅 ${conv.dateTime}\n🏥 ${bizName}\n\nThank you! We'll see you then. 😊\n\nNeed anything else? Just send a message anytime!`
+    } else if (isNo(t)) {
+      clearConv(convKey)
+      reply = `No problem! Your booking was not made.\n\nWould you like to start over?\n\nReply *Yes* or just send a new message anytime!`
+    } else {
+      reply = `Please reply *Yes* to confirm your booking or *No* to cancel.`
+    }
+  }
 
-  const response = generateResponse(intent, businessData, lang)
+  else if (conv?.state === 'menu') {
+    reply = handleMenuChoice(lo, bizName, services, biz, schedule)
+    if (reply.nextState) {
+      setConv(convKey, reply.nextState)
+      reply = reply.text
+    } else {
+      reply = reply.text
+    }
+  }
 
-  await sock.sendMessage(jid, { text: response })
+  // ── No active conversation or fresh message ──
+  else {
+    // Check for direct intents even without state
+    const result = handleMenuChoice(lo, bizName, services, biz, schedule)
+    if (result.nextState) {
+      setConv(convKey, result.nextState)
+    } else {
+      setConv(convKey, 'menu')
+    }
+    reply = result.text
+  }
+
+  await sock.sendMessage(jid, { text: reply })
+}
+
+// ── Menu handler ──
+
+function mainMenu(bizName) {
+  return `Welcome to ${bizName}! 👋\n\nHow can I help you today?\n\n1️⃣ View our services\n2️⃣ Book an appointment\n3️⃣ View prices\n4️⃣ Opening hours\n5️⃣ Our location\n\nReply with a *number* or type your question!`
+}
+
+function handleMenuChoice(input, bizName, services, biz, schedule) {
+  const t = input.trim()
+
+  // Number choices
+  if (t === '1' || /\b(service|services|what do you|what can|offer|menu|list|catalog)\b/.test(t)) {
+    return showServices(bizName, services)
+  }
+  if (t === '2' || /\b(book|appointment|reserve|schedule|rdv|cita|حجز|rendez)\b/.test(t)) {
+    return showServices(bizName, services, true)
+  }
+  if (t === '3' || /\b(price|prices|pricing|cost|how much|fee|tarif|prix|سعر|اسعار|كم|precio)\b/.test(t)) {
+    return showPrices(bizName, services)
+  }
+  if (t === '4' || /\b(hour|hours|open|close|opening|closing|when|time|timing|horaire|ساعات)\b/.test(t)) {
+    return showHours(bizName, biz, schedule)
+  }
+  if (t === '5' || /\b(where|address|location|direction|map|عنوان|موقع|adresse|direccion)\b/.test(t)) {
+    return showLocation(bizName, biz)
+  }
+
+  // Greetings
+  if (/^(hi|hello|hey|good morning|good afternoon|good evening|salam|salut|bonjour|hola|مرحبا|اهلا)$/i.test(t) || /\b(hi|hello|hey)\b/.test(t)) {
+    return { text: mainMenu(bizName) }
+  }
+
+  // Thanks
+  if (/\b(thank|thanks|thx|merci|gracias|شكرا)\b/.test(t)) {
+    return { text: `You're welcome! 😊\n\nNeed anything else?\n\nReply *Yes* to see the menu or just send a new message anytime!` }
+  }
+
+  // Cancel/reschedule
+  if (/\b(cancel|reschedule|annuler|cancelar|الغاء)\b/.test(t)) {
+    return { text: `To cancel or reschedule, please provide:\n\n1. Your name\n2. Date of your appointment\n\nWe'll sort it out for you!\n\nOr reply *No* to go back to the menu.` }
+  }
+
+  // Yes (after done/thanks)
+  if (isYes(t)) {
+    return { text: mainMenu(bizName) }
+  }
+
+  // Default: show menu
+  return { text: mainMenu(bizName) }
+}
+
+function showServices(bizName, services, forBooking = false) {
+  const list = formatServiceList(services)
+  if (list) {
+    const header = forBooking
+      ? `Let's book an appointment at ${bizName}! 📅\n\nChoose a service:\n\n`
+      : `Here are our services at ${bizName}:\n\n`
+    return {
+      text: `${header}${list}\n\nReply with the *number* of the service you'd like.\n\nOr reply *No* to go back.`,
+      nextState: 'pick_service'
+    }
+  }
+  return { text: `We haven't listed our services yet. Please contact us directly!\n\nWould you like to see the menu?\n\nReply *Yes* or *No*` }
+}
+
+function showPrices(bizName, services) {
+  const list = formatServiceList(services)
+  if (list) {
+    return {
+      text: `💰 Prices at ${bizName}:\n\n${list}\n\nWould you like to book any of these?\n\nReply *Yes* or *No*`,
+    }
+  }
+  return { text: `Pricing information coming soon! Contact us for details.\n\nWould you like to see the menu?\n\nReply *Yes* or *No*` }
+}
+
+function showHours(bizName, biz, schedule) {
+  const hours = formatHours(biz, schedule)
+  if (hours) {
+    return { text: `🕐 Opening hours at ${bizName}:\n\n${hours}\nWould you like to book an appointment?\n\nReply *Yes* or *No*` }
+  }
+  return { text: `Our opening hours are not set yet. Please contact us directly!\n\nWould you like to see the menu?\n\nReply *Yes* or *No*` }
+}
+
+function showLocation(bizName, biz) {
+  const loc = formatLocation(biz)
+  if (loc) {
+    return { text: `📍 Find us at:\n${loc}\n\nWould you like to book a visit?\n\nReply *Yes* or *No*` }
+  }
+  return { text: `Our location details are not set yet. Please contact us directly!\n\nWould you like to see the menu?\n\nReply *Yes* or *No*` }
 }
 
 module.exports = { handleIncomingMessage }

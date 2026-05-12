@@ -239,14 +239,17 @@ function parseDateTimeStr(str) {
     date = today.toISOString().split('T')[0]
   }
 
-  const timeMatch = s.match(/(\d{1,2})[:\.]?(\d{0,2})\s*(am|pm)?/i)
+  const timeStr = dateMatch ? s.slice(dateMatch.index + dateMatch[0].length) : s
+  const timeMatch = timeStr.match(/(\d{1,2})[:\.](\d{2})\s*(am|pm)?/i) || timeStr.match(/(\d{1,2})\s*(am|pm)/i)
   let time = '09:00:00'
   if (timeMatch) {
     let h = parseInt(timeMatch[1])
-    const m = timeMatch[2] ? parseInt(timeMatch[2]) : 0
-    const ampm = timeMatch[3]?.toLowerCase()
-    if (ampm === 'pm' && h < 12) h += 12
-    if (ampm === 'am' && h === 12) h = 0
+    const m = timeMatch[2] && /^\d+$/.test(timeMatch[2]) ? parseInt(timeMatch[2]) : 0
+    const ampm = (timeMatch[3] || timeMatch[2] || '').toLowerCase()
+    const isPm = ampm === 'pm'
+    const isAm = ampm === 'am'
+    if (isPm && h < 12) h += 12
+    if (isAm && h === 12) h = 0
     time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`
   }
 
@@ -264,11 +267,16 @@ function validateBookingTime(dateStr, timeStr, schedule) {
   const dayName = dayNames[dateObj.getDay()]
   const daySchedule = schedule[dayName]
 
-  // Check if past date
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   if (dateObj < today) {
     return { valid: false, reason: `That date has already passed. Please choose a future date.` }
+  }
+
+  const maxDate = new Date(today)
+  maxDate.setFullYear(maxDate.getFullYear() + 1)
+  if (dateObj > maxDate) {
+    return { valid: false, reason: `That date is too far in the future. Please choose a date within the next 12 months.` }
   }
 
   // Check if closed that day

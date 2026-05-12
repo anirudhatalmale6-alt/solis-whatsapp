@@ -182,6 +182,77 @@ function formatLocation(biz) {
   return parts.length > 0 ? parts.join(', ') : null
 }
 
+// ── Save booking to Supabase ──
+
+async function saveBooking(supabaseUrl, supabaseKey, businessId, details) {
+  const { date, time } = parseDateTimeStr(details.dateTime)
+
+  const booking = {
+    business_id: businessId,
+    customer_name: details.customerName,
+    customer_phone: details.customerPhone.replace('@s.whatsapp.net', ''),
+    service_id: details.serviceId || null,
+    date: date,
+    time: time,
+    duration: details.duration || 30,
+    status: 'confirmed',
+    notes: 'Booked via WhatsApp AI',
+  }
+
+  const resp = await fetch(`${supabaseUrl}/rest/v1/bookings`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${supabaseKey}`,
+      'apikey': supabaseKey,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+    },
+    body: JSON.stringify(booking),
+  })
+
+  if (!resp.ok) {
+    const err = await resp.text()
+    throw new Error(`Supabase error: ${resp.status} ${err}`)
+  }
+
+  const result = await resp.json()
+  console.log(`[BOOKING] Saved booking for ${details.customerName} at ${date} ${time}`)
+  return result
+}
+
+function parseDateTimeStr(str) {
+  const s = str.trim()
+
+  const dateMatch = s.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/)
+  let date = null
+  if (dateMatch) {
+    const day = dateMatch[1].padStart(2, '0')
+    const month = dateMatch[2].padStart(2, '0')
+    let year = dateMatch[3]
+    if (year.length === 2) year = '20' + year
+    date = `${year}-${month}-${day}`
+  } else {
+    const today = new Date()
+    if (/tomorrow/i.test(s)) {
+      today.setDate(today.getDate() + 1)
+    }
+    date = today.toISOString().split('T')[0]
+  }
+
+  const timeMatch = s.match(/(\d{1,2})[:\.]?(\d{0,2})\s*(am|pm)?/i)
+  let time = '09:00:00'
+  if (timeMatch) {
+    let h = parseInt(timeMatch[1])
+    const m = timeMatch[2] ? parseInt(timeMatch[2]) : 0
+    const ampm = timeMatch[3]?.toLowerCase()
+    if (ampm === 'pm' && h < 12) h += 12
+    if (ampm === 'am' && h === 12) h = 0
+    time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`
+  }
+
+  return { date, time }
+}
+
 // ── Rate limiter ──
 const recentReplies = new Map()
 
@@ -277,8 +348,19 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
 
   else if (conv?.state === 'confirm_booking') {
     if (isYes(t)) {
+      try {
+        await saveBooking(supabaseUrl, supabaseKey, businessId, {
+          customerName: conv.name,
+          customerPhone: senderPhone,
+          serviceId: conv.service.id,
+          dateTime: conv.dateTime,
+          duration: conv.service.duration,
+        })
+      } catch (err) {
+        console.error('Failed to save booking:', err.message)
+      }
       clearConv(convKey)
-      reply = `✅ Booking Confirmed!\n\n📋 ${formatServiceLine(conv.service)}\n👤 ${conv.name}\n📅 ${conv.dateTime}\n🏥 ${bizName}\n\nThank you! We'll see you then. 😊\n\nNeed anything else? Just send a message anytime!`
+      reply = `✅ Booking Confirmed!\n\n📋 ${formatServiceLine(conv.service)}\n👤 ${conv.name}\n📅 ${conv.dateTime}\n🏥 ${bizName}\n\nThank you! Your appointment has been saved. We'll see you then. 😊\n\nNeed anything else? Just send a message anytime!`
     } else if (isNo(t)) {
       clearConv(convKey)
       reply = `No problem! Your booking was not made.\n\nWould you like to start over?\n\nReply *Yes* or just send a new message anytime!`

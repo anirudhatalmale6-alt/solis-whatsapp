@@ -50,25 +50,25 @@ function detectLanguage(text) {
 function detectIntent(text) {
   const t = text.toLowerCase().trim()
 
-  if (/\b(book|appointment|schedule|reserve|booking|slot|available|availability|when can|tomorrow|today|time)\b/.test(t))
+  if (/\b(book|books|booking|bookings|appointment|appointments|schedule|reserve|reservation|slot|slots|available|availability|when can|tomorrow|today|time)\b/.test(t))
     return 'booking'
-  if (/\b(price|cost|how much|pricing|rate|rates|fee|charge)\b/.test(t))
+  if (/\b(price|prices|pricing|cost|costs|how much|rate|rates|fee|fees|charge|charges|tarif|tarifs|tariff)\b/.test(t))
     return 'pricing'
-  if (/\b(service|services|what do you|what can|offer|menu|treatment|treatments)\b/.test(t))
+  if (/\b(service|services|what do you|what can|offer|offers|menu|treatment|treatments|list|result|results|catalog|catalogue)\b/.test(t))
     return 'services'
-  if (/\b(hour|hours|open|close|opening|closing|schedule|working|when are)\b/.test(t))
+  if (/\b(hour|hours|open|close|opening|closing|working|when are|what time|timing|timings)\b/.test(t))
     return 'hours'
-  if (/\b(cancel|reschedule|change|move|postpone)\b/.test(t))
+  if (/\b(cancel|cancellation|reschedule|change|move|postpone)\b/.test(t))
     return 'cancel'
-  if (/\b(where|address|location|directions|find you|map)\b/.test(t))
+  if (/\b(where|address|location|directions|find you|map|gps)\b/.test(t))
     return 'location'
-  if (/\b(hi|hello|hey|good morning|good afternoon|good evening|howdy|sup)\b/.test(t))
+  if (/\b(hi|hello|hey|good morning|good afternoon|good evening|howdy|sup|salam|salut|bonjour|hola)\b/.test(t))
     return 'greeting'
-  if (/\b(thank|thanks|thx|cheers|appreciate)\b/.test(t))
+  if (/\b(thank|thanks|thx|cheers|appreciate|merci|gracias|shukran)\b/.test(t))
     return 'thanks'
   if (/\b(help|support|problem|issue|question)\b/.test(t))
     return 'help'
-  if (/\b(yes|yeah|yep|sure|ok|okay|confirm|perfect|great|sounds good|that works|go ahead)\b/.test(t))
+  if (/\b(yes|yeah|yep|sure|ok|okay|confirm|perfect|great|sounds good|that works|go ahead|done|let's go|absolutely)\b/.test(t))
     return 'confirm'
 
   return 'unknown'

@@ -1,3 +1,5 @@
+const { logMessage } = require('./messageLog')
+
 const SUPABASE_BUCKET = 'business-data'
 
 async function fetchBusinessData(supabaseUrl, supabaseKey, businessId) {
@@ -341,7 +343,9 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
   if (/^(menu|start|restart|reset|back|0|main)$/i.test(t)) {
     reply = mainMenu(bizName)
     setConv(convKey, 'menu')
+    logMessage(businessId, senderPhone, 'inbound', text)
     await sock.sendMessage(jid, { text: reply })
+    logMessage(businessId, senderPhone, 'outbound', reply)
     return
   }
 
@@ -457,7 +461,9 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
     reply = result.text
   }
 
+  logMessage(businessId, senderPhone, 'inbound', text)
   await sock.sendMessage(jid, { text: reply })
+  logMessage(businessId, senderPhone, 'outbound', reply)
 }
 
 // ── Menu handler ──

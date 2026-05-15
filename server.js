@@ -2,6 +2,7 @@ const express = require('express')
 const cors = require('cors')
 const { SessionManager } = require('./sessions')
 const { handleIncomingMessage } = require('./handler')
+const { logMessage, getMessages } = require('./messageLog')
 
 const app = express()
 app.use(cors({ origin: ['https://app.solis-os.com', 'http://localhost:5173'] }))
@@ -69,10 +70,15 @@ app.post('/api/whatsapp/send', async (req, res) => {
 
   try {
     await sessions.sendMessage(business_id, phone, message)
+    logMessage(business_id, phone, 'outbound', message)
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
+})
+
+app.get('/api/whatsapp/messages/:businessId', (req, res) => {
+  res.json(getMessages(req.params.businessId))
 })
 
 app.listen(PORT, '0.0.0.0', () => {

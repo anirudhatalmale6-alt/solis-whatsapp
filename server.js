@@ -137,6 +137,45 @@ app.get('/api/whatsapp/debug/:businessId', (req, res) => {
   })
 })
 
+// Force reconnect - kills current session and creates fresh one
+app.post('/api/whatsapp/reconnect', async (req, res) => {
+  const { business_id } = req.body
+  if (!business_id) return res.status(400).json({ error: 'business_id required' })
+
+  try {
+    console.log(`[WA] Force reconnecting ${business_id}`)
+    sessions._reconnecting.delete(business_id)
+    sessions._closeSocket(business_id)
+    sessions.sessions.delete(business_id)
+    sessions.qrCodes.delete(business_id)
+    sessions.pairingCodes.delete(business_id)
+    sessions.statuses.set(business_id, 'connecting')
+
+    const result = await sessions._createSession(business_id)
+    res.json({ success: true, ...result })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Send a test ping message to verify the connection is truly alive
+app.post('/api/whatsapp/ping', async (req, res) => {
+  const { business_id, phone } = req.body
+  if (!business_id || !phone) return res.status(400).json({ error: 'business_id and phone required' })
+
+  try {
+    const session = sessions.sessions.get(business_id)
+    if (!session?.connected || !session?.sock) {
+      return res.json({ alive: false, reason: 'not connected' })
+    }
+    const jid = phone.replace(/[^0-9]/g, '') + '@s.whatsapp.net'
+    await session.sock.sendMessage(jid, { text: '✅ Bot is online and working!' })
+    res.json({ alive: true, sent: true })
+  } catch (err) {
+    res.json({ alive: false, reason: err.message })
+  }
+})
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Solis WhatsApp service running on port ${PORT}`)
   sessions.restoreAll()

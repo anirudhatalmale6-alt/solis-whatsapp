@@ -204,11 +204,18 @@ class SessionManager {
     })
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      console.log(`[WA] ${businessId} messages.upsert: type=${type}, count=${messages?.length || 0}`)
       if (type !== 'notify') return
-      if (sessionData.sock !== sock) return
+      if (sessionData.sock !== sock) {
+        console.log(`[WA] ${businessId} SKIPPED - stale socket`)
+        return
+      }
 
       for (const msg of messages) {
-        if (msg.key.fromMe) continue
+        if (msg.key.fromMe) {
+          console.log(`[WA] ${businessId} skip fromMe message`)
+          continue
+        }
         if (!msg.message) continue
 
         const jid = msg.key.remoteJid
@@ -217,15 +224,24 @@ class SessionManager {
 
         const msgTimestamp = (msg.messageTimestamp?.low || msg.messageTimestamp || 0)
         const ageSeconds = Math.floor(Date.now() / 1000) - msgTimestamp
-        if (ageSeconds > 120) continue
+        if (ageSeconds > 600 || ageSeconds < -60) {
+          console.log(`[WA] ${businessId} skip old/future msg age=${ageSeconds}s`)
+          continue
+        }
 
         const text = msg.message?.conversation
           || msg.message?.extendedTextMessage?.text
+          || msg.message?.imageMessage?.caption
+          || msg.message?.videoMessage?.caption
           || ''
 
-        if (!text.trim()) continue
+        if (!text.trim()) {
+          console.log(`[WA] ${businessId} skip empty text from ${jid}`)
+          continue
+        }
 
         const senderPhone = jid.split('@')[0]
+        console.log(`[WA] ${businessId} PROCESSING msg from ${senderPhone}: "${text.trim().slice(0, 40)}"`)
 
         try {
           await this.onMessage({
@@ -237,8 +253,9 @@ class SessionManager {
             supabaseUrl: this.supabaseUrl,
             supabaseKey: this.supabaseKey,
           })
+          console.log(`[WA] ${businessId} REPLIED to ${senderPhone}`)
         } catch (err) {
-          console.error(`[WA] ${businessId} handler error:`, err.message)
+          console.error(`[WA] ${businessId} handler error:`, err.message, err.stack)
         }
       }
     })

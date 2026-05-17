@@ -122,6 +122,7 @@ class SessionManager {
 
       if (connection === 'open') {
         sessionData.connected = true
+        sessionData.reconnectCount = 0
         this.qrCodes.delete(businessId)
         if (this.pairingCodes) this.pairingCodes.delete(businessId)
         this.statuses.set(businessId, 'connected')
@@ -135,12 +136,23 @@ class SessionManager {
       if (connection === 'close') {
         sessionData.connected = false
         const statusCode = (lastDisconnect?.error)?.output?.statusCode
+        const errorMsg = lastDisconnect?.error?.message || 'unknown'
+        console.log(`[WA] ${businessId} connection closed: code=${statusCode}, error=${errorMsg}`)
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut
 
         if (shouldReconnect) {
-          console.log(`[WA] ${businessId} reconnecting...`)
+          if (!sessionData.reconnectCount) sessionData.reconnectCount = 0
+          sessionData.reconnectCount++
+          if (sessionData.reconnectCount > 10) {
+            console.log(`[WA] ${businessId} too many reconnect attempts, stopping`)
+            this.statuses.set(businessId, 'disconnected')
+            this.sessions.delete(businessId)
+            return
+          }
+          const delay = Math.min(3000 * sessionData.reconnectCount, 30000)
+          console.log(`[WA] ${businessId} reconnecting (attempt ${sessionData.reconnectCount}) in ${delay}ms...`)
           this.statuses.set(businessId, 'reconnecting')
-          setTimeout(() => this._createSession(businessId), 3000)
+          setTimeout(() => this._createSession(businessId), delay)
         } else {
           console.log(`[WA] ${businessId} logged out`)
           this.statuses.set(businessId, 'disconnected')

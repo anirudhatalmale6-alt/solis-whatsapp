@@ -4,6 +4,13 @@ const { SessionManager } = require('./sessions')
 const { handleIncomingMessage } = require('./handler')
 const { logMessage, getMessages } = require('./messageLog')
 
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception (keeping alive):', err.message, err.stack)
+})
+process.on('unhandledRejection', (err) => {
+  console.error('[FATAL] Unhandled rejection (keeping alive):', err?.message || err, err?.stack)
+})
+
 const app = express()
 app.use(cors())
 app.use(express.json())

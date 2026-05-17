@@ -1,7 +1,5 @@
 const { logMessage } = require('./messageLog')
 
-const SUPABASE_BUCKET = 'business-data'
-
 // ── Multilingual support (8 languages) ──
 const LANGS = {
   en: 'English',
@@ -36,14 +34,14 @@ const T = {
     it: `🌐 Scegli la tua lingua:\n\n1. English\n2. العربية (Arabic)\n3. Français (French)\n4. Español (Spanish)\n5. Português (Portuguese)\n6. हिन्दी (Hindi)\n7. 中文 (Chinese)\n8. Italiano (Italian)\n\nRispondi con un numero:`,
   },
   lang_set: {
-    en: (name) => `✅ Language set to English!\n\nLet me show you the menu:`,
-    ar: (name) => `✅ تم تعيين اللغة إلى العربية!\n\nإليك القائمة:`,
-    fr: (name) => `✅ Langue définie sur Français!\n\nVoici le menu:`,
-    es: (name) => `✅ ¡Idioma cambiado a Español!\n\nAquí está el menú:`,
-    pt: (name) => `✅ Idioma definido para Português!\n\nAqui está o menu:`,
-    hi: (name) => `✅ भाषा हिन्दी में बदली गई!\n\nयहाँ मेनू है:`,
-    zh: (name) => `✅ 语言已设置为中文!\n\n这是菜单:`,
-    it: (name) => `✅ Lingua impostata su Italiano!\n\nEcco il menu:`,
+    en: () => `✅ Language set to English!\n\nLet me show you the menu:`,
+    ar: () => `✅ تم تعيين اللغة إلى العربية!\n\nإليك القائمة:`,
+    fr: () => `✅ Langue définie sur Français!\n\nVoici le menu:`,
+    es: () => `✅ ¡Idioma cambiado a Español!\n\nAquí está el menú:`,
+    pt: () => `✅ Idioma definido para Português!\n\nAqui está o menu:`,
+    hi: () => `✅ भाषा हिन्दी में बदली गई!\n\nयहाँ मेनू है:`,
+    zh: () => `✅ 语言已设置为中文!\n\n这是菜单:`,
+    it: () => `✅ Lingua impostata su Italiano!\n\nEcco il menu:`,
   },
   services_header: {
     en: (biz) => `Here are our services at ${biz}:\n\n`,
@@ -287,7 +285,7 @@ const T = {
   },
 }
 
-function t(key, lang, ...args) {
+function tr(key, lang, ...args) {
   const entry = T[key]
   if (!entry) return ''
   const fn = entry[lang] || entry['en']
@@ -295,7 +293,7 @@ function t(key, lang, ...args) {
   return fn || entry['en'] || ''
 }
 
-// ── Language detection from first message ──
+// ── Language detection ──
 const LANG_NUM_MAP = { '1': 'en', '2': 'ar', '3': 'fr', '4': 'es', '5': 'pt', '6': 'hi', '7': 'zh', '8': 'it' }
 
 function detectLanguage(text) {
@@ -310,25 +308,12 @@ function detectLanguage(text) {
   return 'en'
 }
 
-// ──────────────────────────────────────────
+// ── Fetch business data (DB-first approach) ──
 
 async function fetchBusinessData(supabaseUrl, supabaseKey, businessId) {
-  const keys = ['services', 'bookings', 'schedule', 'business_info']
   const data = {}
 
-  for (const key of keys) {
-    try {
-      const resp = await fetch(
-        `${supabaseUrl}/storage/v1/object/${SUPABASE_BUCKET}/${businessId}/${key}.json`,
-        { headers: { 'Authorization': `Bearer ${supabaseKey}` } }
-      )
-      if (resp.ok) {
-        const text = await resp.text()
-        if (text) data[key] = JSON.parse(text)
-      }
-    } catch {}
-  }
-
+  // Always fetch from database first (this is where the app saves data)
   try {
     const resp = await fetch(
       `${supabaseUrl}/rest/v1/businesses?id=eq.${businessId}&select=*`,
@@ -341,44 +326,46 @@ async function fetchBusinessData(supabaseUrl, supabaseKey, businessId) {
     )
     if (resp.ok) {
       const rows = await resp.json()
-      if (rows[0]) data.business_info = { ...data.business_info, ...rows[0] }
+      if (rows[0]) data.business_info = rows[0]
     }
-  } catch {}
-
-  if (!data.services || !Array.isArray(data.services) || data.services.length === 0) {
-    try {
-      const resp = await fetch(
-        `${supabaseUrl}/rest/v1/services?business_id=eq.${businessId}&select=*`,
-        {
-          headers: {
-            'Authorization': `Bearer ${supabaseKey}`,
-            'apikey': supabaseKey,
-          }
-        }
-      )
-      if (resp.ok) {
-        const rows = await resp.json()
-        if (rows.length > 0) data.services = rows
-      }
-    } catch {}
+  } catch (err) {
+    console.error('[WA] Error fetching business:', err.message)
   }
 
-  if (!data.schedule || Object.keys(data.schedule).length === 0) {
-    try {
-      const resp = await fetch(
-        `${supabaseUrl}/rest/v1/schedules?business_id=eq.${businessId}&select=*`,
-        {
-          headers: {
-            'Authorization': `Bearer ${supabaseKey}`,
-            'apikey': supabaseKey,
-          }
+  try {
+    const resp = await fetch(
+      `${supabaseUrl}/rest/v1/services?business_id=eq.${businessId}&select=*`,
+      {
+        headers: {
+          'Authorization': `Bearer ${supabaseKey}`,
+          'apikey': supabaseKey,
         }
-      )
-      if (resp.ok) {
-        const rows = await resp.json()
-        if (rows[0]) data.schedule = rows[0]
       }
-    } catch {}
+    )
+    if (resp.ok) {
+      const rows = await resp.json()
+      if (rows.length > 0) data.services = rows
+    }
+  } catch (err) {
+    console.error('[WA] Error fetching services:', err.message)
+  }
+
+  try {
+    const resp = await fetch(
+      `${supabaseUrl}/rest/v1/schedules?business_id=eq.${businessId}&select=*`,
+      {
+        headers: {
+          'Authorization': `Bearer ${supabaseKey}`,
+          'apikey': supabaseKey,
+        }
+      }
+    )
+    if (resp.ok) {
+      const rows = await resp.json()
+      if (rows[0]) data.schedule = rows[0]
+    }
+  } catch (err) {
+    console.error('[WA] Error fetching schedule:', err.message)
   }
 
   return data
@@ -408,14 +395,8 @@ function clearConv(key) { conversations.delete(key) }
 
 // ── User language preferences ──
 const userLangs = new Map()
-
-function getUserLang(key) {
-  return userLangs.get(key) || null
-}
-
-function setUserLang(key, lang) {
-  userLangs.set(key, lang)
-}
+function getUserLang(key) { return userLangs.get(key) || null }
+function setUserLang(key, lang) { userLangs.set(key, lang) }
 
 // ── Helpers ──
 
@@ -478,15 +459,19 @@ function getBizName(biz) {
 }
 
 function formatHours(biz, schedule) {
-  const s = biz?.schedule || schedule || {}
+  const s = schedule || biz?.schedule || {}
   if (Object.keys(s).length === 0) return null
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
   let lines = ''
   for (const day of days) {
     const d = s[day]
-    if (d && !d.off && d.start) {
-      lines += `${day.charAt(0).toUpperCase() + day.slice(1)}: ${d.start} - ${d.end}\n`
-    } else if (d?.off) {
+    if (!d) continue
+    const isOpen = d.enabled !== false && d.off !== true
+    const startTime = d.open || d.start
+    const endTime = d.close || d.end
+    if (isOpen && startTime) {
+      lines += `${day.charAt(0).toUpperCase() + day.slice(1)}: ${startTime} - ${endTime}\n`
+    } else {
       lines += `${day.charAt(0).toUpperCase() + day.slice(1)}: Closed\n`
     }
   }
@@ -622,172 +607,185 @@ function validateBookingTime(dateStr, timeStr, schedule) {
 // ── Rate limiter ──
 const recentReplies = new Map()
 
-// ── Main handler ──
+// ── Main handler (wrapped in try/catch to prevent crashes) ──
 
 async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid, supabaseUrl, supabaseKey }) {
-  const replyKey = `${businessId}:${senderPhone}`
-  const now = Date.now()
-  const lastReply = recentReplies.get(replyKey) || 0
-  if (now - lastReply < 3000) return
-  recentReplies.set(replyKey, now)
+  try {
+    const replyKey = `${businessId}:${senderPhone}`
+    const now = Date.now()
+    const lastReply = recentReplies.get(replyKey) || 0
+    if (now - lastReply < 3000) return
+    recentReplies.set(replyKey, now)
 
-  if (recentReplies.size > 5000) {
-    const cutoff = now - 300000
-    for (const [k, v] of recentReplies) {
-      if (v < cutoff) recentReplies.delete(k)
+    if (recentReplies.size > 5000) {
+      const cutoff = now - 300000
+      for (const [k, v] of recentReplies) {
+        if (v < cutoff) recentReplies.delete(k)
+      }
     }
-  }
 
-  const businessData = await fetchBusinessData(supabaseUrl, supabaseKey, businessId)
-  const biz = businessData.business_info || {}
-  const bizName = getBizName(biz)
-  const services = businessData.services || []
-  const schedule = businessData.schedule || {}
-  const txt = text.trim()
-  const lo = txt.toLowerCase()
+    const businessData = await fetchBusinessData(supabaseUrl, supabaseKey, businessId)
+    const biz = businessData.business_info || {}
+    const bizName = getBizName(biz)
+    const services = businessData.services || []
+    const schedule = businessData.schedule || {}
+    const txt = text.trim()
+    const lo = txt.toLowerCase()
 
-  const convKey = replyKey
-  const conv = getConv(convKey)
+    const convKey = replyKey
+    const conv = getConv(convKey)
 
-  // Get or detect language
-  let lang = getUserLang(convKey)
-  if (!lang) {
-    lang = detectLanguage(txt)
-    setUserLang(convKey, lang)
-  }
-
-  console.log(`[MSG] ${businessId} | ${senderPhone} | lang=${lang} | state=${conv?.state || 'none'} | "${txt.slice(0, 60)}"`)
-
-  let reply = ''
-
-  // ── Language change: "6" from menu or keywords ──
-  if (/^(6|language|lang|langue|idioma|لغة|भाषा|语言|lingua)$/i.test(txt) && (!conv || conv.state === 'menu' || !conv.state)) {
-    reply = t('lang_menu', lang)
-    setConv(convKey, 'choose_lang', { prevLang: lang })
-    logMessage(businessId, senderPhone, 'inbound', text)
-    await sock.sendMessage(jid, { text: reply })
-    logMessage(businessId, senderPhone, 'outbound', reply)
-    return
-  }
-
-  // ── Handle language selection ──
-  if (conv?.state === 'choose_lang') {
-    const selectedLang = LANG_NUM_MAP[txt.trim()]
-    if (selectedLang) {
-      setUserLang(convKey, selectedLang)
-      lang = selectedLang
-      reply = t('lang_set', lang) + '\n\n' + t('welcome', lang, bizName)
-      setConv(convKey, 'menu')
-    } else {
-      reply = t('lang_menu', lang)
+    // Get or detect language
+    let lang = getUserLang(convKey)
+    if (!lang) {
+      lang = detectLanguage(txt)
+      setUserLang(convKey, lang)
     }
-    logMessage(businessId, senderPhone, 'inbound', text)
-    await sock.sendMessage(jid, { text: reply })
-    logMessage(businessId, senderPhone, 'outbound', reply)
-    return
-  }
 
-  // ── Global reset: "menu", "start", "restart", "0" ──
-  if (/^(menu|start|restart|reset|back|0|main)$/i.test(txt)) {
-    reply = t('welcome', lang, bizName)
-    setConv(convKey, 'menu')
-    logMessage(businessId, senderPhone, 'inbound', text)
-    await sock.sendMessage(jid, { text: reply })
-    logMessage(businessId, senderPhone, 'outbound', reply)
-    return
-  }
+    console.log(`[MSG] ${businessId} | ${senderPhone} | lang=${lang} | state=${conv?.state || 'none'} | "${txt.slice(0, 60)}"`)
 
-  // ── Handle based on conversation state ──
+    let reply = ''
 
-  if (conv?.state === 'pick_service') {
-    const picked = findServiceByInput(txt, services)
-    if (picked) {
-      setConv(convKey, 'confirm_service', { service: picked })
-      reply = t('you_selected', lang, formatServiceLine(picked))
-    } else if (isNo(txt)) {
-      reply = t('welcome', lang, bizName)
-      setConv(convKey, 'menu')
-    } else {
-      reply = t('not_found_service', lang)
+    // ── Language change: "6" from menu or keywords ──
+    if (/^(6|language|lang|langue|idioma|لغة|भाषा|语言|lingua)$/i.test(txt) && (!conv || conv.state === 'menu' || !conv.state)) {
+      reply = tr('lang_menu', lang)
+      setConv(convKey, 'choose_lang', { prevLang: lang })
+      logMessage(businessId, senderPhone, 'inbound', text)
+      await sock.sendMessage(jid, { text: reply })
+      logMessage(businessId, senderPhone, 'outbound', reply)
+      return
     }
-  }
 
-  else if (conv?.state === 'confirm_service') {
-    if (isYes(txt)) {
-      setConv(convKey, 'ask_name', { service: conv.service })
-      reply = t('ask_name', lang)
-    } else if (isNo(txt)) {
-      reply = t('welcome', lang, bizName)
-      setConv(convKey, 'menu')
-    } else {
-      reply = t('yes_or_no', lang)
-    }
-  }
-
-  else if (conv?.state === 'ask_name') {
-    if (isNo(txt)) {
-      reply = t('welcome', lang, bizName)
-      setConv(convKey, 'menu')
-    } else if (txt.length >= 2 && /[a-zA-Z؀-ۿऀ-ॿ一-鿿À-ɏ]/.test(txt)) {
-      setConv(convKey, 'ask_date', { service: conv.service, name: txt })
-      reply = t('ask_date', lang, txt)
-    } else {
-      reply = t('type_name', lang)
-    }
-  }
-
-  else if (conv?.state === 'ask_date') {
-    if (isNo(txt)) {
-      reply = t('welcome', lang, bizName)
-      setConv(convKey, 'menu')
-    } else if (txt.length >= 3) {
-      const parsed = parseDateTimeStr(txt)
-      const scheduleData = schedule?.monday ? schedule : (schedule || {})
-      const validation = validateBookingTime(parsed.date, parsed.time, scheduleData)
-      if (!validation.valid) {
-        reply = t('invalid_time', lang, validation.reason)
-        setConv(convKey, 'ask_date', { service: conv.service, name: conv.name })
+    // ── Handle language selection ──
+    if (conv?.state === 'choose_lang') {
+      const selectedLang = LANG_NUM_MAP[txt.trim()]
+      if (selectedLang) {
+        setUserLang(convKey, selectedLang)
+        lang = selectedLang
+        reply = tr('lang_set', lang) + '\n\n' + tr('welcome', lang, bizName)
+        setConv(convKey, 'menu')
       } else {
-        setConv(convKey, 'confirm_booking', { service: conv.service, name: conv.name, dateTime: txt })
-        reply = t('confirm_booking', lang, formatServiceLine(conv.service), conv.name, txt, bizName)
+        reply = tr('lang_menu', lang)
       }
-    } else {
-      reply = t('type_date', lang)
+      logMessage(businessId, senderPhone, 'inbound', text)
+      await sock.sendMessage(jid, { text: reply })
+      logMessage(businessId, senderPhone, 'outbound', reply)
+      return
     }
-  }
 
-  else if (conv?.state === 'confirm_booking') {
-    if (isYes(txt)) {
-      try {
-        await saveBooking(supabaseUrl, supabaseKey, businessId, {
-          customerName: conv.name,
-          customerPhone: senderPhone,
-          serviceId: conv.service.id,
-          dateTime: conv.dateTime,
-          duration: conv.service.duration,
-        })
-      } catch (err) {
-        console.error('Failed to save booking:', err.message)
-      }
-      clearConv(convKey)
-      reply = t('booking_confirmed', lang, formatServiceLine(conv.service), conv.name, conv.dateTime, bizName)
-    } else if (isNo(txt)) {
-      clearConv(convKey)
-      reply = t('booking_cancelled', lang)
-    } else {
-      reply = t('confirm_yes_no', lang)
-    }
-  }
-
-  else if (conv?.state === 'menu' || conv?.state === 'after_prices' || conv?.state === 'after_hours' || conv?.state === 'after_location') {
-    if ((conv?.state === 'after_prices' || conv?.state === 'after_hours' || conv?.state === 'after_location') && isYes(txt)) {
-      const sResult = showServices(bizName, services, true, lang)
-      setConv(convKey, sResult.nextState || 'menu')
-      reply = sResult.text
-    } else if (isNo(txt) && conv?.state !== 'menu') {
-      reply = t('welcome', lang, bizName)
+    // ── Global reset: "menu", "start", "restart", "0" ──
+    if (/^(menu|start|restart|reset|back|0|main)$/i.test(txt)) {
+      reply = tr('welcome', lang, bizName)
       setConv(convKey, 'menu')
-    } else {
+      logMessage(businessId, senderPhone, 'inbound', text)
+      await sock.sendMessage(jid, { text: reply })
+      logMessage(businessId, senderPhone, 'outbound', reply)
+      return
+    }
+
+    // ── Handle based on conversation state ──
+
+    if (conv?.state === 'pick_service') {
+      const picked = findServiceByInput(txt, services)
+      if (picked) {
+        setConv(convKey, 'confirm_service', { service: picked })
+        reply = tr('you_selected', lang, formatServiceLine(picked))
+      } else if (isNo(txt)) {
+        reply = tr('welcome', lang, bizName)
+        setConv(convKey, 'menu')
+      } else {
+        reply = tr('not_found_service', lang)
+      }
+    }
+
+    else if (conv?.state === 'confirm_service') {
+      if (isYes(txt)) {
+        setConv(convKey, 'ask_name', { service: conv.service })
+        reply = tr('ask_name', lang)
+      } else if (isNo(txt)) {
+        reply = tr('welcome', lang, bizName)
+        setConv(convKey, 'menu')
+      } else {
+        reply = tr('yes_or_no', lang)
+      }
+    }
+
+    else if (conv?.state === 'ask_name') {
+      if (isNo(txt)) {
+        reply = tr('welcome', lang, bizName)
+        setConv(convKey, 'menu')
+      } else if (txt.length >= 2 && /[a-zA-Z؀-ۿऀ-ॿ一-鿿À-ɏ]/.test(txt)) {
+        setConv(convKey, 'ask_date', { service: conv.service, name: txt })
+        reply = tr('ask_date', lang, txt)
+      } else {
+        reply = tr('type_name', lang)
+      }
+    }
+
+    else if (conv?.state === 'ask_date') {
+      if (isNo(txt)) {
+        reply = tr('welcome', lang, bizName)
+        setConv(convKey, 'menu')
+      } else if (txt.length >= 3) {
+        const parsed = parseDateTimeStr(txt)
+        const scheduleData = schedule?.monday ? schedule : (schedule || {})
+        const validation = validateBookingTime(parsed.date, parsed.time, scheduleData)
+        if (!validation.valid) {
+          reply = tr('invalid_time', lang, validation.reason)
+          setConv(convKey, 'ask_date', { service: conv.service, name: conv.name })
+        } else {
+          setConv(convKey, 'confirm_booking', { service: conv.service, name: conv.name, dateTime: txt })
+          reply = tr('confirm_booking', lang, formatServiceLine(conv.service), conv.name, txt, bizName)
+        }
+      } else {
+        reply = tr('type_date', lang)
+      }
+    }
+
+    else if (conv?.state === 'confirm_booking') {
+      if (isYes(txt)) {
+        try {
+          await saveBooking(supabaseUrl, supabaseKey, businessId, {
+            customerName: conv.name,
+            customerPhone: senderPhone,
+            serviceId: conv.service.id,
+            dateTime: conv.dateTime,
+            duration: conv.service.duration,
+          })
+        } catch (err) {
+          console.error('Failed to save booking:', err.message)
+        }
+        clearConv(convKey)
+        reply = tr('booking_confirmed', lang, formatServiceLine(conv.service), conv.name, conv.dateTime, bizName)
+      } else if (isNo(txt)) {
+        clearConv(convKey)
+        reply = tr('booking_cancelled', lang)
+      } else {
+        reply = tr('confirm_yes_no', lang)
+      }
+    }
+
+    else if (conv?.state === 'menu' || conv?.state === 'after_prices' || conv?.state === 'after_hours' || conv?.state === 'after_location') {
+      if ((conv?.state === 'after_prices' || conv?.state === 'after_hours' || conv?.state === 'after_location') && isYes(txt)) {
+        const sResult = showServices(bizName, services, true, lang)
+        setConv(convKey, sResult.nextState || 'menu')
+        reply = sResult.text
+      } else if (isNo(txt) && conv?.state !== 'menu') {
+        reply = tr('welcome', lang, bizName)
+        setConv(convKey, 'menu')
+      } else {
+        const result = handleMenuChoice(lo, bizName, services, biz, schedule, lang)
+        if (result.nextState) {
+          setConv(convKey, result.nextState)
+        } else {
+          setConv(convKey, 'menu')
+        }
+        reply = result.text
+      }
+    }
+
+    // ── No active conversation or fresh message ──
+    else {
       const result = handleMenuChoice(lo, bizName, services, biz, schedule, lang)
       if (result.nextState) {
         setConv(convKey, result.nextState)
@@ -796,22 +794,14 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
       }
       reply = result.text
     }
-  }
 
-  // ── No active conversation or fresh message ──
-  else {
-    const result = handleMenuChoice(lo, bizName, services, biz, schedule, lang)
-    if (result.nextState) {
-      setConv(convKey, result.nextState)
-    } else {
-      setConv(convKey, 'menu')
-    }
-    reply = result.text
-  }
+    logMessage(businessId, senderPhone, 'inbound', text)
+    await sock.sendMessage(jid, { text: reply })
+    logMessage(businessId, senderPhone, 'outbound', reply)
 
-  logMessage(businessId, senderPhone, 'inbound', text)
-  await sock.sendMessage(jid, { text: reply })
-  logMessage(businessId, senderPhone, 'outbound', reply)
+  } catch (err) {
+    console.error(`[WA] HANDLER ERROR for ${businessId}:`, err.message, err.stack)
+  }
 }
 
 // ── Menu handler ──
@@ -835,67 +825,67 @@ function handleMenuChoice(input, bizName, services, biz, schedule, lang) {
     return showLocation(bizName, biz, lang)
   }
   if (txt === '6' || /\b(language|lang|langue|idioma|لغة|भाषा|语言|lingua)\b/.test(txt)) {
-    return { text: t('lang_menu', lang), nextState: 'choose_lang' }
+    return { text: tr('lang_menu', lang), nextState: 'choose_lang' }
   }
 
   if (/^(hi|hello|hey|good morning|good afternoon|good evening|salam|salut|bonjour|hola|مرحبا|اهلا|ciao|oi|olá|नमस्ते|你好)$/i.test(txt) || /\b(hi|hello|hey)\b/.test(txt)) {
-    return { text: t('welcome', lang, bizName) }
+    return { text: tr('welcome', lang, bizName) }
   }
 
   if (/\b(thank|thanks|thx|merci|gracias|شكرا|grazie|obrigad|धन्यवाद|谢谢)\b/.test(txt)) {
-    return { text: t('thanks', lang) }
+    return { text: tr('thanks', lang) }
   }
 
   if (/\b(cancel|reschedule|annuler|cancelar|الغاء|annullare|cancelar|रद्द|取消)\b/.test(txt)) {
-    return { text: t('cancel_reschedule', lang) }
+    return { text: tr('cancel_reschedule', lang) }
   }
 
   if (isYes(txt)) {
-    return { text: t('welcome', lang, bizName) }
+    return { text: tr('welcome', lang, bizName) }
   }
 
-  return { text: t('welcome', lang, bizName) }
+  return { text: tr('welcome', lang, bizName) }
 }
 
 function showServices(bizName, services, forBooking = false, lang = 'en') {
   const list = formatServiceList(services)
   if (list) {
     const header = forBooking
-      ? t('book_header', lang, bizName)
-      : t('services_header', lang, bizName)
+      ? tr('book_header', lang, bizName)
+      : tr('services_header', lang, bizName)
     return {
-      text: `${header}${list}${t('reply_number', lang)}`,
+      text: `${header}${list}${tr('reply_number', lang)}`,
       nextState: 'pick_service'
     }
   }
-  return { text: t('no_services', lang) }
+  return { text: tr('no_services', lang) }
 }
 
 function showPrices(bizName, services, lang = 'en') {
   const list = formatServiceList(services)
   if (list) {
     return {
-      text: `${t('prices_header', lang, bizName)}${list}${t('want_to_book', lang)}`,
+      text: `${tr('prices_header', lang, bizName)}${list}${tr('want_to_book', lang)}`,
       nextState: 'after_prices'
     }
   }
-  return { text: t('no_services', lang) }
+  return { text: tr('no_services', lang) }
 }
 
 function showHours(bizName, biz, schedule, lang = 'en') {
   const hours = formatHours(biz, schedule)
   if (hours) {
-    return { text: `${t('hours_header', lang, bizName)}${hours}${t('want_to_book', lang)}`, nextState: 'after_hours' }
+    return { text: `${tr('hours_header', lang, bizName)}${hours}${tr('want_to_book', lang)}`, nextState: 'after_hours' }
   }
-  return { text: t('no_hours', lang) }
+  return { text: tr('no_hours', lang) }
 }
 
 function showLocation(bizName, biz, lang = 'en') {
   const loc = formatLocation(biz)
   if (loc) {
-    return { text: `${t('location_header', lang)}${loc}${t('want_to_book', lang)}`, nextState: 'after_location' }
+    return { text: `${tr('location_header', lang)}${loc}${tr('want_to_book', lang)}`, nextState: 'after_location' }
   }
-  return { text: t('no_location', lang) }
+  return { text: tr('no_location', lang) }
 }
 
 module.exports = { handleIncomingMessage }

@@ -179,7 +179,7 @@ class SessionManager {
 
         const msgTimestamp = (msg.messageTimestamp?.low || msg.messageTimestamp || 0)
         const ageSeconds = Math.floor(Date.now() / 1000) - msgTimestamp
-        if (ageSeconds > 60) continue
+        if (ageSeconds > 120) continue
 
         const text = msg.message?.conversation
           || msg.message?.extendedTextMessage?.text

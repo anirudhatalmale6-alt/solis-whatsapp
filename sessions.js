@@ -62,6 +62,10 @@ class SessionManager {
 
   async _createSession(businessId, phoneNumber) {
     const authDir = path.join(AUTH_BASE, businessId)
+    if (phoneNumber && fs.existsSync(authDir)) {
+      fs.rmSync(authDir, { recursive: true, force: true })
+      console.log(`[WA] Cleared old session data for ${businessId}`)
+    }
     if (!fs.existsSync(authDir)) {
       fs.mkdirSync(authDir, { recursive: true })
     }
@@ -69,14 +73,12 @@ class SessionManager {
     const { state, saveCreds } = await useMultiFileAuthState(authDir)
     const { version } = await fetchLatestBaileysVersion()
 
-    const logger = pino({ level: 'silent' })
-
     const usePairingCode = !!phoneNumber
 
     const sock = makeWASocket({
       version,
       auth: state,
-      logger,
+      logger: pino({ level: usePairingCode ? 'warn' : 'silent' }),
       printQRInTerminal: false,
       browser: usePairingCode ? ['Chrome (Linux)', '', ''] : ['Solis OS', 'Business', '1.0'],
       connectTimeoutMs: 60000,
@@ -88,6 +90,7 @@ class SessionManager {
 
     if (usePairingCode) {
       const cleanNumber = phoneNumber.replace(/[^0-9]/g, '')
+      console.log(`[WA] Requesting pairing code for ${businessId} with number: ${cleanNumber}`)
       setTimeout(async () => {
         try {
           if (!sessionData.connected) {
@@ -97,10 +100,10 @@ class SessionManager {
             this.statuses.set(businessId, 'waiting_code')
           }
         } catch (err) {
-          console.error(`[WA] Pairing code error for ${businessId}:`, err.message)
+          console.error(`[WA] Pairing code error for ${businessId}:`, err.message, err.stack)
           this.statuses.set(businessId, 'error')
         }
-      }, 3000)
+      }, 5000)
     }
 
     sock.ev.on('creds.update', saveCreds)

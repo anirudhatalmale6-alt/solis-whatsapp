@@ -1,4 +1,6 @@
 const { logMessage } = require('./messageLog')
+const fs = require('fs')
+const path = require('path')
 
 // ── Multilingual support (8 languages) ──
 const LANGS = {
@@ -371,9 +373,51 @@ async function fetchBusinessData(supabaseUrl, supabaseKey, businessId) {
   return data
 }
 
-// ── Conversation state per user ──
-const conversations = new Map()
+// ── Persistent conversation state (survives restarts) ──
+const STATE_DIR = process.env.STATE_DIR || '/opt/solis-whatsapp/state'
+if (!fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive: true })
+
+const CONV_FILE = path.join(STATE_DIR, 'conversations.json')
+const LANG_FILE = path.join(STATE_DIR, 'languages.json')
 const CONV_TIMEOUT = 30 * 60 * 1000
+
+let conversations = new Map()
+let userLangs = new Map()
+
+function loadState() {
+  try {
+    if (fs.existsSync(CONV_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(CONV_FILE, 'utf8'))
+      conversations = new Map(Object.entries(raw))
+    }
+  } catch {}
+  try {
+    if (fs.existsSync(LANG_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(LANG_FILE, 'utf8'))
+      userLangs = new Map(Object.entries(raw))
+    }
+  } catch {}
+}
+
+let _saveTimer = null
+function saveState() {
+  if (_saveTimer) return
+  _saveTimer = setTimeout(() => {
+    _saveTimer = null
+    try {
+      const convObj = {}
+      for (const [k, v] of conversations) convObj[k] = v
+      fs.writeFileSync(CONV_FILE, JSON.stringify(convObj))
+    } catch {}
+    try {
+      const langObj = {}
+      for (const [k, v] of userLangs) langObj[k] = v
+      fs.writeFileSync(LANG_FILE, JSON.stringify(langObj))
+    } catch {}
+  }, 500)
+}
+
+loadState()
 
 function getConv(key) {
   const c = conversations.get(key)
@@ -389,14 +433,14 @@ function setConv(key, state, extra = {}) {
       if (v.updated < cutoff) conversations.delete(k)
     }
   }
+  saveState()
 }
 
-function clearConv(key) { conversations.delete(key) }
+function clearConv(key) { conversations.delete(key); saveState() }
 
 // ── User language preferences ──
-const userLangs = new Map()
 function getUserLang(key) { return userLangs.get(key) || null }
-function setUserLang(key, lang) { userLangs.set(key, lang) }
+function setUserLang(key, lang) { userLangs.set(key, lang); saveState() }
 
 // ── Helpers ──
 
@@ -430,9 +474,10 @@ function formatServiceLine(s) {
 
 function findServiceByInput(text, services) {
   if (!services || services.length === 0) return null
-  const txt = text.trim()
+  const txt = text.trim().replace(/[​-‍﻿]/g, '')
 
-  const num = parseInt(txt)
+  const numMatch = txt.match(/^(\d+)/)
+  const num = numMatch ? parseInt(numMatch[1]) : NaN
   if (!isNaN(num) && num >= 1 && num <= services.length) {
     return services[num - 1]
   }

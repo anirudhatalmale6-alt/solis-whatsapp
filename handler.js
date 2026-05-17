@@ -659,7 +659,7 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
     const replyKey = `${businessId}:${senderPhone}`
     const now = Date.now()
     const lastReply = recentReplies.get(replyKey) || 0
-    if (now - lastReply < 3000) return
+    if (now - lastReply < 800) return
     recentReplies.set(replyKey, now)
 
     if (recentReplies.size > 5000) {

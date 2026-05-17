@@ -18,6 +18,7 @@ class SessionManager {
     this.phones = new Map()
     this.pairingCodes = new Map()
     this._reconnecting = new Set()
+    this._socketId = new Map()
 
     if (!fs.existsSync(AUTH_BASE)) {
       fs.mkdirSync(AUTH_BASE, { recursive: true })
@@ -56,6 +57,11 @@ class SessionManager {
 
     this._closeSocket(businessId)
     this._reconnecting.delete(businessId)
+
+    const session = this.sessions.get(businessId) || {}
+    session.reconnectCount = 0
+    this.sessions.set(businessId, session)
+
     this.statuses.set(businessId, 'connecting')
 
     const authDir = path.join(AUTH_BASE, businessId)
@@ -77,11 +83,12 @@ class SessionManager {
     const { version } = await fetchLatestBaileysVersion()
 
     const usePairingCode = !!phoneNumber
+    const socketId = Date.now() + '_' + Math.random().toString(36).slice(2, 6)
 
     const sock = makeWASocket({
       version,
       auth: state,
-      logger: pino({ level: 'warn' }),
+      logger: pino({ level: 'error' }),
       printQRInTerminal: false,
       browser: ['Ubuntu', 'Chrome', '22.04.4'],
       connectTimeoutMs: 60000,
@@ -92,13 +99,14 @@ class SessionManager {
     sessionData.sock = sock
     sessionData.connected = false
     this.sessions.set(businessId, sessionData)
+    this._socketId.set(businessId, socketId)
 
     if (usePairingCode && !state.creds.registered) {
       const cleanNumber = phoneNumber.replace(/[^0-9]/g, '')
       console.log(`[WA] Will request pairing code for ${businessId} with number: ${cleanNumber}`)
       setTimeout(async () => {
         try {
-          if (!sessionData.connected) {
+          if (!sessionData.connected && this._socketId.get(businessId) === socketId) {
             const code = await sock.requestPairingCode(cleanNumber)
             console.log(`[WA] Pairing code for ${businessId}: ${code}`)
             this.pairingCodes.set(businessId, code)
@@ -116,22 +124,16 @@ class SessionManager {
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update
 
-      // Ignore events from old sockets
-      if (sessionData.sock !== sock) {
-        console.log(`[WA] ${businessId} ignoring event from old socket`)
+      if (this._socketId.get(businessId) !== socketId) {
         return
       }
-
-      console.log(`[WA] ${businessId} connection:`, JSON.stringify({
-        connection, qr: !!qr,
-        statusCode: lastDisconnect?.error?.output?.statusCode
-      }))
 
       if (qr && !usePairingCode) {
         try {
           const qrDataUrl = await QRCode.toDataURL(qr, { width: 300, margin: 2 })
           this.qrCodes.set(businessId, qrDataUrl)
           this.statuses.set(businessId, 'waiting_scan')
+          console.log(`[WA] ${businessId} QR code ready`)
         } catch {}
       }
 
@@ -152,70 +154,59 @@ class SessionManager {
         sessionData.connected = false
         const statusCode = lastDisconnect?.error?.output?.statusCode
         const errorMsg = lastDisconnect?.error?.message || 'unknown'
-        console.log(`[WA] ${businessId} closed: code=${statusCode}, error=${errorMsg}`)
+        console.log(`[WA] ${businessId} closed: code=${statusCode}, msg=${errorMsg}`)
 
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut
-
-        if (shouldReconnect) {
-          // Prevent duplicate reconnection attempts
-          if (this._reconnecting.has(businessId)) {
-            console.log(`[WA] ${businessId} reconnection already in progress, skipping`)
-            return
-          }
-
-          if (!sessionData.reconnectCount) sessionData.reconnectCount = 0
-          sessionData.reconnectCount++
-
-          if (sessionData.reconnectCount > 15) {
-            console.log(`[WA] ${businessId} too many reconnect attempts, stopping`)
-            this.statuses.set(businessId, 'disconnected')
-            this._reconnecting.delete(businessId)
-            return
-          }
-
-          const delay = Math.min(5000 * sessionData.reconnectCount, 60000)
-          console.log(`[WA] ${businessId} reconnecting (attempt ${sessionData.reconnectCount}) in ${delay}ms...`)
-          this.statuses.set(businessId, 'reconnecting')
-          this._reconnecting.add(businessId)
-
-          setTimeout(async () => {
-            this._reconnecting.delete(businessId)
-            this._closeSocket(businessId)
-            try {
-              await this._createSession(businessId)
-            } catch (err) {
-              console.error(`[WA] ${businessId} reconnect failed:`, err.message)
-              this.statuses.set(businessId, 'disconnected')
-            }
-          }, delay)
-        } else {
-          console.log(`[WA] ${businessId} logged out`)
-          this._closeSocket(businessId)
-          this.statuses.set(businessId, 'disconnected')
-          this.phones.delete(businessId)
-          this.sessions.delete(businessId)
-          this._reconnecting.delete(businessId)
-          const authDir = path.join(AUTH_BASE, businessId)
-          if (fs.existsSync(authDir)) {
-            fs.rmSync(authDir, { recursive: true, force: true })
-          }
+        if (statusCode === DisconnectReason.loggedOut) {
+          console.log(`[WA] ${businessId} logged out, clearing session`)
+          this._cleanup(businessId, true)
+          return
         }
+
+        if (this._reconnecting.has(businessId)) {
+          return
+        }
+
+        if (!sessionData.reconnectCount) sessionData.reconnectCount = 0
+        sessionData.reconnectCount++
+
+        if (sessionData.reconnectCount > 5) {
+          console.log(`[WA] ${businessId} max reconnect attempts reached, stopping`)
+          this._cleanup(businessId, false)
+          return
+        }
+
+        const delays = [5000, 15000, 30000, 60000, 120000]
+        const delay = delays[Math.min(sessionData.reconnectCount - 1, delays.length - 1)]
+        console.log(`[WA] ${businessId} will reconnect (attempt ${sessionData.reconnectCount}/5) in ${delay / 1000}s`)
+        this.statuses.set(businessId, 'reconnecting')
+        this._reconnecting.add(businessId)
+
+        setTimeout(async () => {
+          if (this._socketId.get(businessId) !== socketId) {
+            this._reconnecting.delete(businessId)
+            return
+          }
+
+          this._closeSocket(businessId)
+
+          try {
+            await this._createSession(businessId)
+          } catch (err) {
+            console.error(`[WA] ${businessId} reconnect failed:`, err.message)
+            this._cleanup(businessId, false)
+          } finally {
+            this._reconnecting.delete(businessId)
+          }
+        }, delay)
       }
     })
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      console.log(`[WA] ${businessId} messages.upsert: type=${type}, count=${messages?.length || 0}`)
       if (type !== 'notify') return
-      if (sessionData.sock !== sock) {
-        console.log(`[WA] ${businessId} SKIPPED - stale socket`)
-        return
-      }
+      if (this._socketId.get(businessId) !== socketId) return
 
       for (const msg of messages) {
-        if (msg.key.fromMe) {
-          console.log(`[WA] ${businessId} skip fromMe message`)
-          continue
-        }
+        if (msg.key.fromMe) continue
         if (!msg.message) continue
 
         const jid = msg.key.remoteJid
@@ -224,10 +215,7 @@ class SessionManager {
 
         const msgTimestamp = (msg.messageTimestamp?.low || msg.messageTimestamp || 0)
         const ageSeconds = Math.floor(Date.now() / 1000) - msgTimestamp
-        if (ageSeconds > 600 || ageSeconds < -60) {
-          console.log(`[WA] ${businessId} skip old/future msg age=${ageSeconds}s`)
-          continue
-        }
+        if (ageSeconds > 600 || ageSeconds < -60) continue
 
         const text = msg.message?.conversation
           || msg.message?.extendedTextMessage?.text
@@ -235,13 +223,10 @@ class SessionManager {
           || msg.message?.videoMessage?.caption
           || ''
 
-        if (!text.trim()) {
-          console.log(`[WA] ${businessId} skip empty text from ${jid}`)
-          continue
-        }
+        if (!text.trim()) continue
 
         const senderPhone = jid.split('@')[0]
-        console.log(`[WA] ${businessId} PROCESSING msg from ${senderPhone}: "${text.trim().slice(0, 40)}"`)
+        console.log(`[WA] ${businessId} msg from ${senderPhone}: "${text.trim().slice(0, 50)}"`)
 
         try {
           await this.onMessage({
@@ -253,14 +238,31 @@ class SessionManager {
             supabaseUrl: this.supabaseUrl,
             supabaseKey: this.supabaseKey,
           })
-          console.log(`[WA] ${businessId} REPLIED to ${senderPhone}`)
         } catch (err) {
-          console.error(`[WA] ${businessId} handler error:`, err.message, err.stack)
+          console.error(`[WA] ${businessId} handler error:`, err.message)
         }
       }
     })
 
     return { status: 'connecting', method: usePairingCode ? 'pairing_code' : 'qr' }
+  }
+
+  _cleanup(businessId, clearAuth) {
+    this._closeSocket(businessId)
+    this._reconnecting.delete(businessId)
+    this._socketId.delete(businessId)
+    this.statuses.set(businessId, 'disconnected')
+    this.qrCodes.delete(businessId)
+    this.pairingCodes.delete(businessId)
+
+    if (clearAuth) {
+      this.phones.delete(businessId)
+      this.sessions.delete(businessId)
+      const authDir = path.join(AUTH_BASE, businessId)
+      if (fs.existsSync(authDir)) {
+        fs.rmSync(authDir, { recursive: true, force: true })
+      }
+    }
   }
 
   async _saveBusinessPhone(businessId, phone) {
@@ -296,16 +298,7 @@ class SessionManager {
       try { session.sock.ev.removeAllListeners() } catch {}
       try { session.sock.end() } catch {}
     }
-    this.sessions.delete(businessId)
-    this.qrCodes.delete(businessId)
-    this.pairingCodes.delete(businessId)
-    this.statuses.set(businessId, 'disconnected')
-    this.phones.delete(businessId)
-
-    const authDir = path.join(AUTH_BASE, businessId)
-    if (fs.existsSync(authDir)) {
-      fs.rmSync(authDir, { recursive: true, force: true })
-    }
+    this._cleanup(businessId, true)
   }
 
   async restoreAll() {
@@ -314,13 +307,18 @@ class SessionManager {
       return fs.statSync(path.join(AUTH_BASE, d)).isDirectory()
     })
 
-    console.log(`[WA] Restoring ${dirs.length} sessions...`)
+    if (dirs.length === 0) return
+    console.log(`[WA] Found ${dirs.length} saved session(s), attempting restore...`)
+
     for (const businessId of dirs) {
       try {
+        const session = { businessId, reconnectCount: 0 }
+        this.sessions.set(businessId, session)
         await this._createSession(businessId)
-        console.log(`[WA] Restored session for ${businessId}`)
+        console.log(`[WA] Restore started for ${businessId}`)
       } catch (err) {
         console.error(`[WA] Failed to restore ${businessId}:`, err.message)
+        this._cleanup(businessId, false)
       }
     }
   }

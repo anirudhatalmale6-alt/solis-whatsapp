@@ -95,6 +95,35 @@ app.get('/api/whatsapp/messages/:businessId', (req, res) => {
   res.json(getMessages(req.params.businessId))
 })
 
+// Test endpoint - simulates a message and returns what the bot would reply
+app.post('/api/whatsapp/test', async (req, res) => {
+  const { business_id, phone, message } = req.body
+  if (!business_id || !message) {
+    return res.status(400).json({ error: 'business_id and message required' })
+  }
+
+  let botReply = null
+  const fakeSock = {
+    sendMessage: async (_jid, msg) => { botReply = msg.text },
+    user: { id: 'test@s.whatsapp.net' },
+  }
+
+  try {
+    await handleIncomingMessage({
+      businessId: business_id,
+      senderPhone: phone || 'test_user',
+      text: message,
+      sock: fakeSock,
+      jid: (phone || 'test_user') + '@s.whatsapp.net',
+      supabaseUrl: SUPABASE_URL,
+      supabaseKey: SUPABASE_KEY,
+    })
+    res.json({ reply: botReply, status: 'ok' })
+  } catch (err) {
+    res.json({ reply: null, error: err.message, status: 'error' })
+  }
+})
+
 app.get('/api/whatsapp/debug/:businessId', (req, res) => {
   const { businessId } = req.params
   res.json({

@@ -88,6 +88,19 @@ app.get('/api/whatsapp/messages/:businessId', (req, res) => {
   res.json(getMessages(req.params.businessId))
 })
 
+app.get('/api/whatsapp/debug/:businessId', (req, res) => {
+  const { businessId } = req.params
+  res.json({
+    status: sessions.getStatus(businessId),
+    phone: sessions.getPhone(businessId),
+    hasPairingCode: !!sessions.getPairingCode(businessId),
+    pairingCode: sessions.getPairingCode(businessId),
+    hasQR: !!sessions.getQR(businessId),
+    hasSession: sessions.sessions.has(businessId),
+    isConnected: sessions.sessions.get(businessId)?.connected || false,
+  })
+})
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Solis WhatsApp service running on port ${PORT}`)
   sessions.restoreAll()

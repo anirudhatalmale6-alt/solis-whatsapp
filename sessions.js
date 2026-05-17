@@ -80,35 +80,39 @@ class SessionManager {
       auth: state,
       logger: pino({ level: 'warn' }),
       printQRInTerminal: false,
-      browser: usePairingCode ? ['Ubuntu', 'Chrome', '22.04.4'] : ['Ubuntu', 'Chrome', '22.04.4'],
+      browser: ['Ubuntu', 'Chrome', '22.04.4'],
       connectTimeoutMs: 60000,
     })
 
     const sessionData = { sock, connected: false, businessId }
     this.sessions.set(businessId, sessionData)
 
-    let pairingCodeRequested = false
+    if (usePairingCode && !state.creds.registered) {
+      const cleanNumber = phoneNumber.replace(/[^0-9]/g, '')
+      console.log(`[WA] Will request pairing code for ${businessId} with number: ${cleanNumber}`)
+      setTimeout(async () => {
+        try {
+          if (!sessionData.connected) {
+            console.log(`[WA] Requesting pairing code now for ${businessId}...`)
+            const code = await sock.requestPairingCode(cleanNumber)
+            console.log(`[WA] Pairing code for ${businessId}: ${code}`)
+            this.pairingCodes.set(businessId, code)
+            this.statuses.set(businessId, 'waiting_code')
+          }
+        } catch (err) {
+          console.error(`[WA] Pairing code error for ${businessId}:`, err.message, err.stack)
+          this.statuses.set(businessId, 'error')
+        }
+      }, 3000)
+    }
 
     sock.ev.on('creds.update', saveCreds)
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update
+      console.log(`[WA] ${businessId} connection update:`, JSON.stringify({ connection, qr: !!qr, statusCode: lastDisconnect?.error?.output?.statusCode }))
 
-      if (qr && usePairingCode && !pairingCodeRequested) {
-        pairingCodeRequested = true
-        const cleanNumber = phoneNumber.replace(/[^0-9]/g, '')
-        console.log(`[WA] Socket ready (QR event), requesting pairing code for ${businessId} with number: ${cleanNumber}`)
-        try {
-          const code = await sock.requestPairingCode(cleanNumber)
-          console.log(`[WA] Pairing code for ${businessId}: ${code}`)
-          this.pairingCodes.set(businessId, code)
-          this.statuses.set(businessId, 'waiting_code')
-        } catch (err) {
-          console.error(`[WA] Pairing code error for ${businessId}:`, err.message)
-          this.statuses.set(businessId, 'error')
-          pairingCodeRequested = false
-        }
-      } else if (qr && !usePairingCode) {
+      if (qr && !usePairingCode) {
         try {
           const qrDataUrl = await QRCode.toDataURL(qr, { width: 300, margin: 2 })
           this.qrCodes.set(businessId, qrDataUrl)

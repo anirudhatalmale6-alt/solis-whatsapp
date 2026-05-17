@@ -42,7 +42,11 @@ class SessionManager {
     return this.phones.get(businessId) || null
   }
 
-  async connect(businessId) {
+  getPairingCode(businessId) {
+    return this.pairingCodes?.get(businessId) || null
+  }
+
+  async connect(businessId, phoneNumber) {
     if (this.sessions.has(businessId)) {
       const existing = this.sessions.get(businessId)
       if (existing.connected) {
@@ -51,11 +55,12 @@ class SessionManager {
       await this.disconnect(businessId)
     }
 
+    if (!this.pairingCodes) this.pairingCodes = new Map()
     this.statuses.set(businessId, 'connecting')
-    return this._createSession(businessId)
+    return this._createSession(businessId, phoneNumber)
   }
 
-  async _createSession(businessId) {
+  async _createSession(businessId, phoneNumber) {
     const authDir = path.join(AUTH_BASE, businessId)
     if (!fs.existsSync(authDir)) {
       fs.mkdirSync(authDir, { recursive: true })
@@ -66,25 +71,44 @@ class SessionManager {
 
     const logger = pino({ level: 'silent' })
 
+    const usePairingCode = !!phoneNumber
+
     const sock = makeWASocket({
       version,
       auth: state,
       logger,
       printQRInTerminal: false,
-      browser: ['Solis OS', 'Business', '1.0'],
+      browser: usePairingCode ? ['Chrome (Linux)', '', ''] : ['Solis OS', 'Business', '1.0'],
       connectTimeoutMs: 60000,
-      qrTimeout: 60000,
+      qrTimeout: usePairingCode ? undefined : 60000,
     })
 
     const sessionData = { sock, connected: false, businessId }
     this.sessions.set(businessId, sessionData)
+
+    if (usePairingCode) {
+      const cleanNumber = phoneNumber.replace(/[^0-9]/g, '')
+      setTimeout(async () => {
+        try {
+          if (!sessionData.connected) {
+            const code = await sock.requestPairingCode(cleanNumber)
+            console.log(`[WA] Pairing code for ${businessId}: ${code}`)
+            this.pairingCodes.set(businessId, code)
+            this.statuses.set(businessId, 'waiting_code')
+          }
+        } catch (err) {
+          console.error(`[WA] Pairing code error for ${businessId}:`, err.message)
+          this.statuses.set(businessId, 'error')
+        }
+      }, 3000)
+    }
 
     sock.ev.on('creds.update', saveCreds)
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update
 
-      if (qr) {
+      if (qr && !usePairingCode) {
         try {
           const qrDataUrl = await QRCode.toDataURL(qr, { width: 300, margin: 2 })
           this.qrCodes.set(businessId, qrDataUrl)
@@ -95,6 +119,7 @@ class SessionManager {
       if (connection === 'open') {
         sessionData.connected = true
         this.qrCodes.delete(businessId)
+        if (this.pairingCodes) this.pairingCodes.delete(businessId)
         this.statuses.set(businessId, 'connected')
         const phoneNumber = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0]
         this.phones.set(businessId, phoneNumber)
@@ -164,7 +189,7 @@ class SessionManager {
       }
     })
 
-    return { status: 'connecting', message: 'Scan QR code to connect' }
+    return { status: 'connecting', method: usePairingCode ? 'pairing_code' : 'qr' }
   }
 
   async _saveBusinessPhone(businessId, phone) {

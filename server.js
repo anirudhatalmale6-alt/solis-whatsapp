@@ -5,7 +5,7 @@ const { handleIncomingMessage } = require('./handler')
 const { logMessage, getMessages } = require('./messageLog')
 
 const app = express()
-app.use(cors({ origin: ['https://app.solis-os.com', 'http://localhost:5173'] }))
+app.use(cors())
 app.use(express.json())
 
 const PORT = process.env.PORT || 3003
@@ -23,16 +23,23 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.post('/api/whatsapp/connect', async (req, res) => {
-  const { business_id } = req.body
+  const { business_id, phone_number } = req.body
   if (!business_id) return res.status(400).json({ error: 'business_id required' })
 
   try {
-    const result = await sessions.connect(business_id)
+    const result = await sessions.connect(business_id, phone_number)
     res.json(result)
   } catch (err) {
     console.error('Connect error:', err.message)
     res.status(500).json({ error: err.message })
   }
+})
+
+app.get('/api/whatsapp/pairing-code/:businessId', (req, res) => {
+  const { businessId } = req.params
+  const code = sessions.getPairingCode(businessId)
+  const status = sessions.getStatus(businessId)
+  res.json({ code, status })
 })
 
 app.get('/api/whatsapp/qr/:businessId', async (req, res) => {

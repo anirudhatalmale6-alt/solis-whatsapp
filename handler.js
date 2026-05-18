@@ -729,15 +729,17 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
     }
 
     // ── Handle based on conversation state ──
+    // Defer state changes until after message is sent successfully
+    let pendingState = null // { state, data } or { clear: true }
 
     if (conv?.state === 'pick_service') {
       const picked = findServiceByInput(txt, services)
       if (picked) {
-        setConv(convKey, 'confirm_service', { service: picked })
+        pendingState = { state: 'confirm_service', data: { service: picked } }
         reply = tr('you_selected', lang, formatServiceLine(picked))
       } else if (isNo(txt)) {
         reply = tr('welcome', lang, bizName)
-        setConv(convKey, 'menu')
+        pendingState = { state: 'menu' }
       } else {
         reply = tr('not_found_service', lang)
       }
@@ -745,11 +747,11 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
 
     else if (conv?.state === 'confirm_service') {
       if (isYes(txt)) {
-        setConv(convKey, 'ask_name', { service: conv.service })
+        pendingState = { state: 'ask_name', data: { service: conv.service } }
         reply = tr('ask_name', lang)
       } else if (isNo(txt)) {
         reply = tr('welcome', lang, bizName)
-        setConv(convKey, 'menu')
+        pendingState = { state: 'menu' }
       } else {
         reply = tr('yes_or_no', lang)
       }
@@ -758,9 +760,9 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
     else if (conv?.state === 'ask_name') {
       if (isNo(txt)) {
         reply = tr('welcome', lang, bizName)
-        setConv(convKey, 'menu')
+        pendingState = { state: 'menu' }
       } else if (txt.length >= 2 && /[a-zA-Z؀-ۿऀ-ॿ一-鿿À-ɏ]/.test(txt)) {
-        setConv(convKey, 'ask_date', { service: conv.service, name: txt })
+        pendingState = { state: 'ask_date', data: { service: conv.service, name: txt } }
         reply = tr('ask_date', lang, txt)
       } else {
         reply = tr('type_name', lang)
@@ -770,16 +772,16 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
     else if (conv?.state === 'ask_date') {
       if (isNo(txt)) {
         reply = tr('welcome', lang, bizName)
-        setConv(convKey, 'menu')
+        pendingState = { state: 'menu' }
       } else if (txt.length >= 3) {
         const parsed = parseDateTimeStr(txt)
         const scheduleData = schedule?.monday ? schedule : (schedule || {})
         const validation = validateBookingTime(parsed.date, parsed.time, scheduleData)
         if (!validation.valid) {
           reply = tr('invalid_time', lang, validation.reason)
-          setConv(convKey, 'ask_date', { service: conv.service, name: conv.name })
+          pendingState = { state: 'ask_date', data: { service: conv.service, name: conv.name } }
         } else {
-          setConv(convKey, 'confirm_booking', { service: conv.service, name: conv.name, dateTime: txt })
+          pendingState = { state: 'confirm_booking', data: { service: conv.service, name: conv.name, dateTime: txt } }
           reply = tr('confirm_booking', lang, formatServiceLine(conv.service), conv.name, txt, bizName)
         }
       } else {
@@ -800,10 +802,10 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
         } catch (err) {
           console.error('Failed to save booking:', err.message)
         }
-        clearConv(convKey)
+        pendingState = { clear: true }
         reply = tr('booking_confirmed', lang, formatServiceLine(conv.service), conv.name, conv.dateTime, bizName)
       } else if (isNo(txt)) {
-        clearConv(convKey)
+        pendingState = { clear: true }
         reply = tr('booking_cancelled', lang)
       } else {
         reply = tr('confirm_yes_no', lang)
@@ -813,18 +815,14 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
     else if (conv?.state === 'menu' || conv?.state === 'after_prices' || conv?.state === 'after_hours' || conv?.state === 'after_location') {
       if ((conv?.state === 'after_prices' || conv?.state === 'after_hours' || conv?.state === 'after_location') && isYes(txt)) {
         const sResult = showServices(bizName, services, true, lang)
-        setConv(convKey, sResult.nextState || 'menu')
+        pendingState = { state: sResult.nextState || 'menu' }
         reply = sResult.text
       } else if (isNo(txt) && conv?.state !== 'menu') {
         reply = tr('welcome', lang, bizName)
-        setConv(convKey, 'menu')
+        pendingState = { state: 'menu' }
       } else {
         const result = handleMenuChoice(lo, bizName, services, biz, schedule, lang)
-        if (result.nextState) {
-          setConv(convKey, result.nextState)
-        } else {
-          setConv(convKey, 'menu')
-        }
+        pendingState = { state: result.nextState || 'menu' }
         reply = result.text
       }
     }
@@ -832,17 +830,21 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
     // ── No active conversation or fresh message ──
     else {
       const result = handleMenuChoice(lo, bizName, services, biz, schedule, lang)
-      if (result.nextState) {
-        setConv(convKey, result.nextState)
-      } else {
-        setConv(convKey, 'menu')
-      }
+      pendingState = { state: result.nextState || 'menu' }
       reply = result.text
     }
 
     logMessage(businessId, senderPhone, 'inbound', text)
     await sock.sendMessage(jid, { text: reply })
     logMessage(businessId, senderPhone, 'outbound', reply)
+    // Only advance state after message delivered successfully
+    if (pendingState) {
+      if (pendingState.clear) {
+        clearConv(convKey)
+      } else {
+        setConv(convKey, pendingState.state, pendingState.data)
+      }
+    }
 
   } catch (err) {
     console.error(`[WA] HANDLER ERROR for ${businessId}:`, err.message, err.stack)

@@ -1,4 +1,5 @@
 const { logMessage } = require('./messageLog')
+const { getAIResponse } = require('./ai')
 const fs = require('fs')
 const path = require('path')
 
@@ -822,16 +823,26 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
         pendingState = { state: 'menu' }
       } else {
         const result = handleMenuChoice(lo, bizName, services, biz, schedule, lang)
+        if (result.needsAI) {
+          const aiReply = await getAIResponse(txt, convKey, bizName, services, biz, schedule, lang)
+          reply = aiReply || tr('welcome', lang, bizName)
+        } else {
+          reply = result.text
+        }
         pendingState = { state: result.nextState || 'menu' }
-        reply = result.text
       }
     }
 
     // ── No active conversation or fresh message ──
     else {
       const result = handleMenuChoice(lo, bizName, services, biz, schedule, lang)
+      if (result.needsAI) {
+        const aiReply = await getAIResponse(txt, convKey, bizName, services, biz, schedule, lang)
+        reply = aiReply || tr('welcome', lang, bizName)
+      } else {
+        reply = result.text
+      }
       pendingState = { state: result.nextState || 'menu' }
-      reply = result.text
     }
 
     logMessage(businessId, senderPhone, 'inbound', text)
@@ -891,7 +902,7 @@ function handleMenuChoice(input, bizName, services, biz, schedule, lang) {
     return { text: tr('welcome', lang, bizName) }
   }
 
-  return { text: tr('welcome', lang, bizName) }
+  return { text: null, needsAI: true }
 }
 
 function showServices(bizName, services, forBooking = false, lang = 'en') {

@@ -712,8 +712,8 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
 
     let reply = ''
 
-    // ── Language change: "6" from menu or keywords ──
-    if (/^(6|language|lang|langue|idioma|لغة|भाषा|语言|lingua)$/i.test(txt) && (!conv || conv.state === 'menu' || !conv.state)) {
+    // ── Language change: "7" from menu or keywords ──
+    if (/^(7|language|lang|langue|idioma|لغة|भाषा|语言|lingua)$/i.test(txt) && (!conv || conv.state === 'menu' || !conv.state)) {
       reply = tr('lang_menu', lang)
       setConv(convKey, 'choose_lang', { prevLang: lang })
       logMessage(businessId, senderPhone, 'inbound', text)

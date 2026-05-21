@@ -17,14 +17,14 @@ const LANGS = {
 
 const T = {
   welcome: {
-    en: (biz) => `Welcome to ${biz}! 👋\n\nHow can I help you today?\n\n1️⃣ View our services\n2️⃣ Book an appointment\n3️⃣ View prices\n4️⃣ Opening hours\n5️⃣ Our location\n6️⃣ Change language 🌐\n\nReply with a *number* or type your question!`,
-    ar: (biz) => `مرحباً بك في ${biz}! 👋\n\nكيف يمكنني مساعدتك اليوم؟\n\n1️⃣ عرض خدماتنا\n2️⃣ حجز موعد\n3️⃣ عرض الأسعار\n4️⃣ ساعات العمل\n5️⃣ موقعنا\n6️⃣ تغيير اللغة 🌐\n\nأرسل *رقم* أو اكتب سؤالك!`,
-    fr: (biz) => `Bienvenue chez ${biz}! 👋\n\nComment puis-je vous aider?\n\n1️⃣ Voir nos services\n2️⃣ Prendre rendez-vous\n3️⃣ Voir les prix\n4️⃣ Horaires d'ouverture\n5️⃣ Notre adresse\n6️⃣ Changer de langue 🌐\n\nRépondez avec un *numéro* ou posez votre question!`,
-    es: (biz) => `¡Bienvenido a ${biz}! 👋\n\n¿Cómo puedo ayudarte hoy?\n\n1️⃣ Ver nuestros servicios\n2️⃣ Reservar una cita\n3️⃣ Ver precios\n4️⃣ Horario de atención\n5️⃣ Nuestra ubicación\n6️⃣ Cambiar idioma 🌐\n\n¡Responde con un *número* o escribe tu pregunta!`,
-    pt: (biz) => `Bem-vindo ao ${biz}! 👋\n\nComo posso ajudar?\n\n1️⃣ Ver nossos serviços\n2️⃣ Agendar horário\n3️⃣ Ver preços\n4️⃣ Horário de funcionamento\n5️⃣ Nossa localização\n6️⃣ Mudar idioma 🌐\n\nResponda com um *número* ou escreva sua pergunta!`,
-    hi: (biz) => `${biz} में आपका स्वागत है! 👋\n\nआज मैं आपकी कैसे मदद कर सकता हूं?\n\n1️⃣ हमारी सेवाएं देखें\n2️⃣ अपॉइंटमेंट बुक करें\n3️⃣ कीमतें देखें\n4️⃣ खुलने का समय\n5️⃣ हमारा पता\n6️⃣ भाषा बदलें 🌐\n\n*नंबर* से जवाब दें या अपना सवाल लिखें!`,
-    zh: (biz) => `欢迎来到 ${biz}！👋\n\n今天我能帮您什么？\n\n1️⃣ 查看服务\n2️⃣ 预约\n3️⃣ 查看价格\n4️⃣ 营业时间\n5️⃣ 我们的地址\n6️⃣ 更换语言 🌐\n\n请回复*数字*或输入您的问题！`,
-    it: (biz) => `Benvenuto da ${biz}! 👋\n\nCome posso aiutarti oggi?\n\n1️⃣ Vedi i nostri servizi\n2️⃣ Prenota un appuntamento\n3️⃣ Vedi i prezzi\n4️⃣ Orari di apertura\n5️⃣ La nostra posizione\n6️⃣ Cambia lingua 🌐\n\nRispondi con un *numero* o scrivi la tua domanda!`,
+    en: (biz) => `Welcome to ${biz}! 👋\n\nHow can I help you today?\n\n1️⃣ View our services\n2️⃣ Book an appointment\n3️⃣ View prices\n4️⃣ Opening hours\n5️⃣ Our location\n6️⃣ Visit our website 🌐\n7️⃣ Change language 🗣️\n\nReply with a *number* or type your question!`,
+    ar: (biz) => `مرحباً بك في ${biz}! 👋\n\nكيف يمكنني مساعدتك اليوم؟\n\n1️⃣ عرض خدماتنا\n2️⃣ حجز موعد\n3️⃣ عرض الأسعار\n4️⃣ ساعات العمل\n5️⃣ موقعنا\n6️⃣ زوروا موقعنا الإلكتروني 🌐\n7️⃣ تغيير اللغة 🗣️\n\nأرسل *رقم* أو اكتب سؤالك!`,
+    fr: (biz) => `Bienvenue chez ${biz}! 👋\n\nComment puis-je vous aider?\n\n1️⃣ Voir nos services\n2️⃣ Prendre rendez-vous\n3️⃣ Voir les prix\n4️⃣ Horaires d'ouverture\n5️⃣ Notre adresse\n6️⃣ Visitez notre site web 🌐\n7️⃣ Changer de langue 🗣️\n\nRépondez avec un *numéro* ou posez votre question!`,
+    es: (biz) => `¡Bienvenido a ${biz}! 👋\n\n¿Cómo puedo ayudarte hoy?\n\n1️⃣ Ver nuestros servicios\n2️⃣ Reservar una cita\n3️⃣ Ver precios\n4️⃣ Horario de atención\n5️⃣ Nuestra ubicación\n6️⃣ Visita nuestro sitio web 🌐\n7️⃣ Cambiar idioma 🗣️\n\n¡Responde con un *número* o escribe tu pregunta!`,
+    pt: (biz) => `Bem-vindo ao ${biz}! 👋\n\nComo posso ajudar?\n\n1️⃣ Ver nossos serviços\n2️⃣ Agendar horário\n3️⃣ Ver preços\n4️⃣ Horário de funcionamento\n5️⃣ Nossa localização\n6️⃣ Visite nosso site 🌐\n7️⃣ Mudar idioma 🗣️\n\nResponda com um *número* ou escreva sua pergunta!`,
+    hi: (biz) => `${biz} में आपका स्वागत है! 👋\n\nआज मैं आपकी कैसे मदद कर सकता हूं?\n\n1️⃣ हमारी सेवाएं देखें\n2️⃣ अपॉइंटमेंट बुक करें\n3️⃣ कीमतें देखें\n4️⃣ खुलने का समय\n5️⃣ हमारा पता\n6️⃣ हमारी वेबसाइट देखें 🌐\n7️⃣ भाषा बदलें 🗣️\n\n*नंबर* से जवाब दें या अपना सवाल लिखें!`,
+    zh: (biz) => `欢迎来到 ${biz}！👋\n\n今天我能帮您什么？\n\n1️⃣ 查看服务\n2️⃣ 预约\n3️⃣ 查看价格\n4️⃣ 营业时间\n5️⃣ 我们的地址\n6️⃣ 访问我们的网站 🌐\n7️⃣ 更换语言 🗣️\n\n请回复*数字*或输入您的问题！`,
+    it: (biz) => `Benvenuto da ${biz}! 👋\n\nCome posso aiutarti oggi?\n\n1️⃣ Vedi i nostri servizi\n2️⃣ Prenota un appuntamento\n3️⃣ Vedi i prezzi\n4️⃣ Orari di apertura\n5️⃣ La nostra posizione\n6️⃣ Visita il nostro sito web 🌐\n7️⃣ Cambia lingua 🗣️\n\nRispondi con un *numero* o scrivi la tua domanda!`,
   },
   lang_menu: {
     en: `🌐 Choose your language:\n\n1. English\n2. العربية (Arabic)\n3. Français (French)\n4. Español (Spanish)\n5. Português (Portuguese)\n6. हिन्दी (Hindi)\n7. 中文 (Chinese)\n8. Italiano (Italian)\n\nReply with a number:`,
@@ -215,6 +215,26 @@ const T = {
     hi: `हमारे पते की जानकारी अभी उपलब्ध नहीं है। सीधे संपर्क करें!`,
     zh: `我们的地址尚未设置。请直接联系我们！`,
     it: `Il nostro indirizzo non è ancora impostato. Contattaci direttamente!`,
+  },
+  website_msg: {
+    en: (biz, url) => `🌐 Visit ${biz} online:\n\n${url}\n\nNeed anything else? Just send a message!`,
+    ar: (biz, url) => `🌐 زوروا ${biz} عبر الإنترنت:\n\n${url}\n\nتحتاج شيء آخر؟ أرسل رسالة!`,
+    fr: (biz, url) => `🌐 Visitez ${biz} en ligne:\n\n${url}\n\nBesoin d'autre chose? Envoyez un message!`,
+    es: (biz, url) => `🌐 Visita ${biz} en linea:\n\n${url}\n\nNecesitas algo mas? Envia un mensaje!`,
+    pt: (biz, url) => `🌐 Visite ${biz} online:\n\n${url}\n\nPrecisa de mais alguma coisa? Envie uma mensagem!`,
+    hi: (biz, url) => `🌐 ${biz} की वेबसाइट देखें:\n\n${url}\n\nकुछ और चाहिए? मैसेज करें!`,
+    zh: (biz, url) => `🌐 访问 ${biz} 的网站:\n\n${url}\n\n还需要帮助吗？发消息就行！`,
+    it: (biz, url) => `🌐 Visita ${biz} online:\n\n${url}\n\nHai bisogno di altro? Scrivi un messaggio!`,
+  },
+  no_website: {
+    en: `Our website is not set up yet. Please contact us directly for more information!`,
+    ar: `لم يتم إعداد موقعنا الإلكتروني بعد. تواصل معنا مباشرة لمزيد من المعلومات!`,
+    fr: `Notre site web n'est pas encore configuré. Contactez-nous directement pour plus d'informations!`,
+    es: `Nuestro sitio web aún no está configurado. ¡Contáctanos directamente para más información!`,
+    pt: `Nosso site ainda não está configurado. Entre em contato diretamente para mais informações!`,
+    hi: `हमारी वेबसाइट अभी सेट नहीं है। अधिक जानकारी के लिए सीधे संपर्क करें!`,
+    zh: `我们的网站尚未设置。请直接联系我们获取更多信息！`,
+    it: `Il nostro sito web non è ancora configurato. Contattaci direttamente per maggiori informazioni!`,
   },
   thanks: {
     en: `You're welcome! 😊\n\nNeed anything else? Just send a message anytime!`,
@@ -882,7 +902,10 @@ function handleMenuChoice(input, bizName, services, biz, schedule, lang) {
   if (txt === '5' || /\b(where|address|location|direction|map|عنوان|موقع|adresse|direccion|indirizzo|पता|地址)\b/.test(txt)) {
     return showLocation(bizName, biz, lang)
   }
-  if (txt === '6' || /\b(language|lang|langue|idioma|لغة|भाषा|语言|lingua)\b/.test(txt)) {
+  if (txt === '6' || /\b(website|site|web|sitio|sito|موقع.?إلكتروني|वेबसाइट|网站)\b/.test(txt)) {
+    return showWebsite(bizName, biz, lang)
+  }
+  if (txt === '7' || /\b(language|lang|langue|idioma|لغة|भाषा|语言|lingua)\b/.test(txt)) {
     return { text: tr('lang_menu', lang), nextState: 'choose_lang' }
   }
 
@@ -944,6 +967,14 @@ function showLocation(bizName, biz, lang = 'en') {
     return { text: `${tr('location_header', lang)}${loc}${tr('want_to_book', lang)}`, nextState: 'after_location' }
   }
   return { text: tr('no_location', lang) }
+}
+
+function showWebsite(bizName, biz, lang = 'en') {
+  const url = biz?.website
+  if (url) {
+    return { text: tr('website_msg', lang, bizName, url) }
+  }
+  return { text: tr('no_website', lang) }
 }
 
 module.exports = { handleIncomingMessage }

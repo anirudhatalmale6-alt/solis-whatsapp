@@ -730,6 +730,9 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
         lang = selectedLang
         reply = tr('lang_set', lang) + '\n\n' + tr('welcome', lang, bizName)
         setConv(convKey, 'menu')
+      } else if (/^(hi|hello|hey|menu|start|back|0|cancel|no)$/i.test(txt.trim())) {
+        reply = tr('welcome', lang, bizName)
+        setConv(convKey, 'menu')
       } else {
         reply = tr('lang_menu', lang)
       }

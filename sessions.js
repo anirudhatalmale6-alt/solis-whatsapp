@@ -4,6 +4,7 @@ const fs = require('fs')
 const path = require('path')
 const pino = require('pino')
 const QRCode = require('qrcode')
+const { updateMessageStatus } = require('./messageLog')
 
 const AUTH_BASE = process.env.AUTH_DIR || '/opt/solis-whatsapp/sessions'
 
@@ -156,8 +157,8 @@ class SessionManager {
         const errorMsg = lastDisconnect?.error?.message || 'unknown'
         console.log(`[WA] ${businessId} closed: code=${statusCode}, msg=${errorMsg}`)
 
-        if (statusCode === DisconnectReason.loggedOut) {
-          console.log(`[WA] ${businessId} logged out, clearing session`)
+        if (statusCode === DisconnectReason.loggedOut || statusCode === 440) {
+          console.log(`[WA] ${businessId} ${statusCode === 440 ? 'session conflict (replaced)' : 'logged out'}, clearing session`)
           this._cleanup(businessId, true)
           return
         }
@@ -166,11 +167,13 @@ class SessionManager {
           return
         }
 
+        if (!sessionData.totalReconnects) sessionData.totalReconnects = 0
+        sessionData.totalReconnects++
         if (!sessionData.reconnectCount) sessionData.reconnectCount = 0
         sessionData.reconnectCount++
 
-        if (sessionData.reconnectCount > 5) {
-          console.log(`[WA] ${businessId} max reconnect attempts reached, stopping`)
+        if (sessionData.reconnectCount > 5 || sessionData.totalReconnects > 15) {
+          console.log(`[WA] ${businessId} max reconnect attempts reached (${sessionData.reconnectCount}/5 consecutive, ${sessionData.totalReconnects} total), stopping`)
           this._cleanup(businessId, false)
           return
         }
@@ -244,6 +247,15 @@ class SessionManager {
       }
     })
 
+    sock.ev.on('messages.update', (updates) => {
+      if (this._socketId.get(businessId) !== socketId) return
+      for (const update of updates) {
+        if (update.update?.status && update.key?.id) {
+          updateMessageStatus(businessId, update.key.id, update.update.status)
+        }
+      }
+    })
+
     return { status: 'connecting', method: usePairingCode ? 'pairing_code' : 'qr' }
   }
 
@@ -287,7 +299,8 @@ class SessionManager {
     if (!session?.connected) throw new Error('WhatsApp not connected')
 
     const jid = phone.replace(/[^0-9]/g, '') + '@s.whatsapp.net'
-    await session.sock.sendMessage(jid, { text: message })
+    const sent = await session.sock.sendMessage(jid, { text: message })
+    return { messageId: sent?.key?.id || null }
   }
 
   async disconnect(businessId) {

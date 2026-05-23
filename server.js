@@ -2,7 +2,7 @@ const express = require('express')
 const cors = require('cors')
 const { SessionManager } = require('./sessions')
 const { handleIncomingMessage } = require('./handler')
-const { logMessage, getMessages } = require('./messageLog')
+const { logMessage, getMessages, getMessageStatuses } = require('./messageLog')
 
 process.on('uncaughtException', (err) => {
   console.error('[FATAL] Uncaught exception (keeping alive):', err.message, err.stack)
@@ -83,9 +83,9 @@ app.post('/api/whatsapp/send', async (req, res) => {
   }
 
   try {
-    await sessions.sendMessage(business_id, phone, message)
-    logMessage(business_id, phone, 'outbound', message)
-    res.json({ success: true })
+    const result = await sessions.sendMessage(business_id, phone, message)
+    logMessage(business_id, phone, 'outbound', message, result?.messageId)
+    res.json({ success: true, messageId: result?.messageId || null })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -93,6 +93,42 @@ app.post('/api/whatsapp/send', async (req, res) => {
 
 app.get('/api/whatsapp/messages/:businessId', (req, res) => {
   res.json(getMessages(req.params.businessId))
+})
+
+app.post('/api/whatsapp/campaign-stats', (req, res) => {
+  const { business_id, message_ids, phones, sent_after } = req.body
+  if (!business_id) return res.status(400).json({ error: 'business_id required' })
+
+  const result = { delivered: 0, read: 0, replied: 0 }
+
+  if (message_ids && message_ids.length > 0) {
+    const statuses = getMessageStatuses(business_id, message_ids)
+    for (const id of message_ids) {
+      const s = statuses[id]
+      if (s) {
+        if (s.status >= 3) result.delivered++
+        if (s.status >= 4) result.read++
+      }
+    }
+  }
+
+  if (phones && phones.length > 0 && sent_after) {
+    const messages = getMessages(business_id)
+    const phoneSet = new Set(phones.map(p => p.replace(/\D/g, '')))
+    const sentTime = new Date(sent_after).getTime()
+    const repliedPhones = new Set()
+    for (const msg of messages) {
+      if (msg.direction === 'inbound' && new Date(msg.timestamp).getTime() > sentTime) {
+        const msgPhone = msg.phone.replace(/\D/g, '')
+        if (phoneSet.has(msgPhone) && !repliedPhones.has(msgPhone)) {
+          repliedPhones.add(msgPhone)
+          result.replied++
+        }
+      }
+    }
+  }
+
+  res.json(result)
 })
 
 // Test endpoint - simulates a message and returns what the bot would reply

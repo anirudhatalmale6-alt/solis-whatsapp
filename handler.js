@@ -146,6 +146,16 @@ const T = {
     zh: `没问题！预约未创建。\n\n想重新开始吗？随时发消息！`,
     it: `Nessun problema! La prenotazione non è stata effettuata.\n\nVuoi ricominciare? Scrivi quando vuoi!`,
   },
+  slot_taken: {
+    en: (next) => `⚠️ Sorry, that time slot is already booked!\n\nThe next available slot is at *${next}*.\n\nPlease type a new date and time:`,
+    ar: (next) => `⚠️ عذراً، هذا الموعد محجوز بالفعل!\n\nأقرب موعد متاح هو *${next}*.\n\nيرجى كتابة تاريخ ووقت جديد:`,
+    fr: (next) => `⚠️ Désolé, ce créneau est déjà réservé!\n\nLe prochain créneau disponible est à *${next}*.\n\nVeuillez indiquer une nouvelle date et heure:`,
+    es: (next) => `⚠️ Lo siento, ese horario ya está reservado!\n\nEl próximo horario disponible es a las *${next}*.\n\nPor favor escribe una nueva fecha y hora:`,
+    pt: (next) => `⚠️ Desculpe, esse horário já está reservado!\n\nO próximo horário disponível é às *${next}*.\n\nPor favor digite uma nova data e hora:`,
+    hi: (next) => `⚠️ क्षमा करें, वह समय पहले से बुक है!\n\nअगला उपलब्ध समय *${next}* है।\n\nकृपया नई तारीख और समय लिखें:`,
+    zh: (next) => `⚠️ 抱歉，该时段已被预约！\n\n下一个可用时段是 *${next}*。\n\n请输入新的日期和时间：`,
+    it: (next) => `⚠️ Spiacente, quell'orario è già prenotato!\n\nIl prossimo orario disponibile è alle *${next}*.\n\nScrivi una nuova data e ora:`,
+  },
   prices_header: {
     en: (biz) => `💰 Prices at ${biz}:\n\n`,
     ar: (biz) => `💰 الأسعار في ${biz}:\n\n`,
@@ -554,6 +564,41 @@ function formatLocation(biz) {
 
 // ── Save booking to Supabase ──
 
+async function checkSlotAvailable(supabaseUrl, supabaseKey, businessId, dateStr, timeStr, duration) {
+  try {
+    const resp = await fetch(
+      `${supabaseUrl}/rest/v1/bookings?business_id=eq.${businessId}&date=eq.${dateStr}&status=neq.cancelled&select=time,duration`,
+      {
+        headers: {
+          'Authorization': `Bearer ${supabaseKey}`,
+          'apikey': supabaseKey,
+        }
+      }
+    )
+    if (!resp.ok) return { available: true }
+    const bookings = await resp.json()
+    if (!bookings.length) return { available: true }
+
+    const reqStart = parseInt(timeStr.split(':')[0]) * 60 + parseInt(timeStr.split(':')[1])
+    const reqEnd = reqStart + (duration || 30)
+
+    for (const b of bookings) {
+      const bStart = parseInt(b.time.split(':')[0]) * 60 + parseInt(b.time.split(':')[1])
+      const bEnd = bStart + (b.duration || 30)
+      if (reqStart < bEnd && reqEnd > bStart) {
+        const nextFree = bEnd
+        const nextH = String(Math.floor(nextFree / 60)).padStart(2, '0')
+        const nextM = String(nextFree % 60).padStart(2, '0')
+        return { available: false, nextSlot: `${nextH}:${nextM}` }
+      }
+    }
+    return { available: true }
+  } catch (err) {
+    console.error('[WA] Error checking availability:', err.message)
+    return { available: true }
+  }
+}
+
 async function saveBooking(supabaseUrl, supabaseKey, businessId, details) {
   const { date, time } = parseDateTimeStr(details.dateTime)
 
@@ -592,6 +637,8 @@ async function saveBooking(supabaseUrl, supabaseKey, businessId, details) {
 
 function parseDateTimeStr(str) {
   const s = str.trim()
+  let hasDate = false
+  let hasTime = false
 
   const dateMatch = s.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/)
   let date = null
@@ -601,12 +648,15 @@ function parseDateTimeStr(str) {
     let year = dateMatch[3]
     if (year.length === 2) year = '20' + year
     date = `${year}-${month}-${day}`
-  } else {
-    const today = new Date()
-    if (/tomorrow|demain|mañana|amanhã|domani|غدا|कल|明天/i.test(s)) {
-      today.setDate(today.getDate() + 1)
-    }
-    date = today.toISOString().split('T')[0]
+    hasDate = true
+  } else if (/today|tonight|now|aujourd|hoy|hoje|oggi|اليوم|आज|今天/i.test(s)) {
+    date = new Date().toISOString().split('T')[0]
+    hasDate = true
+  } else if (/tomorrow|demain|mañana|amanhã|domani|غدا|कल|明天/i.test(s)) {
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    date = tomorrow.toISOString().split('T')[0]
+    hasDate = true
   }
 
   const timeStr = dateMatch ? s.slice(dateMatch.index + dateMatch[0].length) : s
@@ -621,9 +671,10 @@ function parseDateTimeStr(str) {
     if (isPm && h < 12) h += 12
     if (isAm && h === 12) h = 0
     time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`
+    hasTime = true
   }
 
-  return { date, time }
+  return { date, time, valid: hasDate || hasTime }
 }
 
 function validateBookingTime(dateStr, timeStr, schedule) {
@@ -786,10 +837,25 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
         reply = tr('welcome', lang, bizName)
         pendingState = { state: 'menu' }
       } else if (txt.length >= 2 && /[a-zA-Z؀-ۿऀ-ॿ一-鿿À-ɏ]/.test(txt)) {
-        pendingState = { state: 'ask_date', data: { service: conv.service, name: txt } }
-        reply = tr('ask_date', lang, txt)
+        pendingState = { state: 'ask_phone', data: { service: conv.service, name: txt } }
+        reply = `Thanks ${txt}! Please enter your phone number (with country code, e.g. +61412345678):`
       } else {
         reply = tr('type_name', lang)
+      }
+    }
+
+    else if (conv?.state === 'ask_phone') {
+      if (isNo(txt)) {
+        reply = tr('welcome', lang, bizName)
+        pendingState = { state: 'menu' }
+      } else {
+        const cleanPhone = txt.replace(/[\s\-\(\)]/g, '')
+        if (/^\+?\d{8,15}$/.test(cleanPhone)) {
+          pendingState = { state: 'ask_date', data: { service: conv.service, name: conv.name, customerPhone: cleanPhone.startsWith('+') ? cleanPhone : '+' + cleanPhone } }
+          reply = tr('ask_date', lang, conv.name)
+        } else {
+          reply = 'Please enter a valid phone number with country code (e.g. +61412345678):'
+        }
       }
     }
 
@@ -797,37 +863,51 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
       if (isNo(txt)) {
         reply = tr('welcome', lang, bizName)
         pendingState = { state: 'menu' }
-      } else if (txt.length >= 3) {
-        const parsed = parseDateTimeStr(txt)
-        const scheduleData = schedule?.monday ? schedule : (schedule || {})
-        const validation = validateBookingTime(parsed.date, parsed.time, scheduleData)
-        if (!validation.valid) {
-          reply = tr('invalid_time', lang, validation.reason)
-          pendingState = { state: 'ask_date', data: { service: conv.service, name: conv.name } }
-        } else {
-          pendingState = { state: 'confirm_booking', data: { service: conv.service, name: conv.name, dateTime: txt } }
-          reply = tr('confirm_booking', lang, formatServiceLine(conv.service), conv.name, txt, bizName)
-        }
       } else {
-        reply = tr('type_date', lang)
+        const parsed = parseDateTimeStr(txt)
+        if (!parsed.valid) {
+          reply = tr('type_date', lang)
+          pendingState = { state: 'ask_date', data: { service: conv.service, name: conv.name, customerPhone: conv.customerPhone } }
+        } else if (!parsed.date) {
+          const today = new Date()
+          parsed.date = today.toISOString().split('T')[0]
+        }
+        if (parsed.valid) {
+          const scheduleData = schedule?.monday ? schedule : (schedule || {})
+          const validation = validateBookingTime(parsed.date, parsed.time, scheduleData)
+          if (!validation.valid) {
+            reply = tr('invalid_time', lang, validation.reason)
+            pendingState = { state: 'ask_date', data: { service: conv.service, name: conv.name, customerPhone: conv.customerPhone } }
+          } else {
+            pendingState = { state: 'confirm_booking', data: { service: conv.service, name: conv.name, customerPhone: conv.customerPhone, dateTime: txt } }
+            reply = tr('confirm_booking', lang, formatServiceLine(conv.service), conv.name, txt, bizName)
+          }
+        }
       }
     }
 
     else if (conv?.state === 'confirm_booking') {
       if (isYes(txt)) {
-        try {
-          await saveBooking(supabaseUrl, supabaseKey, businessId, {
-            customerName: conv.name,
-            customerPhone: senderPhone,
-            serviceId: conv.service.id,
-            dateTime: conv.dateTime,
-            duration: conv.service.duration,
-          })
-        } catch (err) {
-          console.error('Failed to save booking:', err.message)
+        const parsed = parseDateTimeStr(conv.dateTime)
+        const slotCheck = await checkSlotAvailable(supabaseUrl, supabaseKey, businessId, parsed.date, parsed.time, conv.service.duration || 30)
+        if (!slotCheck.available) {
+          reply = tr('slot_taken', lang, slotCheck.nextSlot)
+          pendingState = { state: 'ask_date', data: { service: conv.service, name: conv.name } }
+        } else {
+          try {
+            await saveBooking(supabaseUrl, supabaseKey, businessId, {
+              customerName: conv.name,
+              customerPhone: conv.customerPhone || senderPhone,
+              serviceId: conv.service.id,
+              dateTime: conv.dateTime,
+              duration: conv.service.duration,
+            })
+          } catch (err) {
+            console.error('Failed to save booking:', err.message)
+          }
+          pendingState = { clear: true }
+          reply = tr('booking_confirmed', lang, formatServiceLine(conv.service), conv.name, conv.dateTime, bizName)
         }
-        pendingState = { clear: true }
-        reply = tr('booking_confirmed', lang, formatServiceLine(conv.service), conv.name, conv.dateTime, bizName)
       } else if (isNo(txt)) {
         pendingState = { clear: true }
         reply = tr('booking_cancelled', lang)

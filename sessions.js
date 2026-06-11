@@ -67,19 +67,39 @@ class SessionManager {
     return map[clean] || clean
   }
 
+  _loadContactJids(businessId) {
+    if (this._contactJids.has(businessId)) return this._contactJids.get(businessId)
+    const file = path.join(LID_MAP_DIR, `${businessId}_jids.json`)
+    let map = {}
+    try { map = JSON.parse(fs.readFileSync(file, 'utf8')) } catch {}
+    this._contactJids.set(businessId, map)
+    return map
+  }
+
+  _saveContactJids(businessId) {
+    const map = this._contactJids.get(businessId)
+    if (!map) return
+    try {
+      fs.writeFileSync(path.join(LID_MAP_DIR, `${businessId}_jids.json`), JSON.stringify(map))
+    } catch {}
+  }
+
   _storeContactJid(businessId, storedPhone, fullJid) {
-    if (!this._contactJids.has(businessId)) this._contactJids.set(businessId, {})
-    this._contactJids.get(businessId)[storedPhone] = fullJid
+    const map = this._loadContactJids(businessId)
+    if (map[storedPhone] !== fullJid) {
+      map[storedPhone] = fullJid
+      this._saveContactJids(businessId)
+    }
   }
 
   _getContactJid(businessId, storedPhone) {
-    const map = this._contactJids.get(businessId)
-    return map?.[storedPhone] || (storedPhone.replace(/[^0-9]/g, '') + '@s.whatsapp.net')
+    const map = this._loadContactJids(businessId)
+    return map[storedPhone] || (storedPhone.replace(/[^0-9]/g, '') + '@s.whatsapp.net')
   }
 
   isContactLid(businessId, storedPhone) {
-    const map = this._contactJids.get(businessId)
-    const jid = map?.[storedPhone]
+    const map = this._loadContactJids(businessId)
+    const jid = map[storedPhone]
     if (jid) return jid.endsWith('@lid')
     const lidMap = this._loadLidMap(businessId)
     return !!lidMap[storedPhone]
@@ -316,6 +336,12 @@ class SessionManager {
         const phoneMayBeLid = isLid && contactPhone === rawPhone
 
         this._storeContactJid(businessId, contactPhone, jid)
+
+        if (isLid && !this._loadLidMap(businessId)[rawPhone]) {
+          const map = this._loadLidMap(businessId)
+          map[rawPhone] = contactPhone
+          this._saveLidMap(businessId)
+        }
 
         if (contactPhone !== rawPhone) {
           console.log(`[WA] ${businessId} resolved LID ${rawPhone} -> ${contactPhone}`)

@@ -2,7 +2,7 @@ const express = require('express')
 const cors = require('cors')
 const { SessionManager } = require('./sessions')
 const { handleIncomingMessage } = require('./handler')
-const { logMessage, getMessages, getMessageStatuses } = require('./messageLog')
+const { logMessage, getMessages, getMessageStatuses, clearMessages } = require('./messageLog')
 
 process.on('uncaughtException', (err) => {
   console.error('[FATAL] Uncaught exception (keeping alive):', err.message, err.stack)
@@ -92,7 +92,22 @@ app.post('/api/whatsapp/send', async (req, res) => {
 })
 
 app.get('/api/whatsapp/messages/:businessId', (req, res) => {
-  res.json(getMessages(req.params.businessId))
+  const messages = getMessages(req.params.businessId)
+  const status = sessions.getStatus(req.params.businessId)
+  const phone = sessions.getPhone(req.params.businessId)
+  res.json({ messages, connectionStatus: status, connectedPhone: phone })
+})
+
+app.delete('/api/whatsapp/messages/:businessId/:phone', (req, res) => {
+  const { businessId, phone } = req.params
+  const ok = clearMessages(businessId, phone)
+  res.json({ success: ok })
+})
+
+app.delete('/api/whatsapp/messages/:businessId', (req, res) => {
+  const { businessId } = req.params
+  const ok = clearMessages(businessId)
+  res.json({ success: ok })
 })
 
 app.post('/api/whatsapp/campaign-stats', (req, res) => {

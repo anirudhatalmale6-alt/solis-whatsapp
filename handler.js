@@ -726,7 +726,7 @@ const recentReplies = new Map()
 
 // ── Main handler (wrapped in try/catch to prevent crashes) ──
 
-async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid, supabaseUrl, supabaseKey }) {
+async function handleIncomingMessage({ businessId, senderPhone, senderName, text, sock, jid, supabaseUrl, supabaseKey }) {
   try {
     const replyKey = `${businessId}:${senderPhone}`
     const now = Date.now()
@@ -767,9 +767,9 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
     if (/^(7|language|lang|langue|idioma|لغة|भाषा|语言|lingua)$/i.test(txt) && (!conv || conv.state === 'menu' || !conv.state)) {
       reply = tr('lang_menu', lang)
       setConv(convKey, 'choose_lang', { prevLang: lang })
-      logMessage(businessId, senderPhone, 'inbound', text)
+      logMessage(businessId, senderPhone, 'inbound', text, null, senderName)
       await sock.sendMessage(jid, { text: reply })
-      logMessage(businessId, senderPhone, 'outbound', reply)
+      logMessage(businessId, senderPhone, 'outbound', reply, null, senderName)
       return
     }
 
@@ -787,9 +787,9 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
       } else {
         reply = tr('lang_menu', lang)
       }
-      logMessage(businessId, senderPhone, 'inbound', text)
+      logMessage(businessId, senderPhone, 'inbound', text, null, senderName)
       await sock.sendMessage(jid, { text: reply })
-      logMessage(businessId, senderPhone, 'outbound', reply)
+      logMessage(businessId, senderPhone, 'outbound', reply, null, senderName)
       return
     }
 
@@ -797,9 +797,9 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
     if (/^(menu|start|restart|reset|back|0|main)$/i.test(txt)) {
       reply = tr('welcome', lang, bizName)
       setConv(convKey, 'menu')
-      logMessage(businessId, senderPhone, 'inbound', text)
+      logMessage(businessId, senderPhone, 'inbound', text, null, senderName)
       await sock.sendMessage(jid, { text: reply })
-      logMessage(businessId, senderPhone, 'outbound', reply)
+      logMessage(businessId, senderPhone, 'outbound', reply, null, senderName)
       return
     }
 
@@ -948,9 +948,9 @@ async function handleIncomingMessage({ businessId, senderPhone, text, sock, jid,
       pendingState = { state: result.nextState || 'menu' }
     }
 
-    logMessage(businessId, senderPhone, 'inbound', text)
+    logMessage(businessId, senderPhone, 'inbound', text, null, senderName)
     await sock.sendMessage(jid, { text: reply })
-    logMessage(businessId, senderPhone, 'outbound', reply)
+    logMessage(businessId, senderPhone, 'outbound', reply, null, senderName)
     // Only advance state after message delivered successfully
     if (pendingState) {
       if (pendingState.clear) {

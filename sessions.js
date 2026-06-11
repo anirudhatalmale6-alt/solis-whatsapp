@@ -209,7 +209,6 @@ class SessionManager {
       if (this._socketId.get(businessId) !== socketId) return
 
       for (const msg of messages) {
-        if (msg.key.fromMe) continue
         if (!msg.message) continue
 
         const jid = msg.key.remoteJid
@@ -228,13 +227,22 @@ class SessionManager {
 
         if (!text.trim()) continue
 
-        const senderPhone = jid.split('@')[0]
-        console.log(`[WA] ${businessId} msg from ${senderPhone}: "${text.trim().slice(0, 50)}"`)
+        const contactPhone = jid.split('@')[0]
+        const contactName = msg.pushName || null
+
+        if (msg.key.fromMe) {
+          const { logMessage } = require('./messageLog')
+          logMessage(businessId, contactPhone, 'outbound', text.trim(), msg.key.id, contactName)
+          continue
+        }
+
+        console.log(`[WA] ${businessId} msg from ${contactPhone} (${contactName || 'unknown'}): "${text.trim().slice(0, 50)}"`)
 
         try {
           await this.onMessage({
             businessId,
-            senderPhone,
+            senderPhone: contactPhone,
+            senderName: contactName,
             text: text.trim(),
             sock,
             jid,

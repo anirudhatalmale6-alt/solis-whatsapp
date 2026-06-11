@@ -98,8 +98,10 @@ app.get('/api/whatsapp/messages/:businessId', (req, res) => {
   const phone = sessions.getPhone(bizId)
   const resolved = messages.map(m => {
     const resolvedPhone = sessions.resolvePhone(bizId, m.phone)
-    if (resolvedPhone !== m.phone) return { ...m, phone: resolvedPhone }
-    return m
+    const isLid = m.isLid || sessions.isContactLid(bizId, m.phone)
+    const out = resolvedPhone !== m.phone ? { ...m, phone: resolvedPhone } : { ...m }
+    if (isLid && resolvedPhone === m.phone) out.isLid = true
+    return out
   })
   res.json({ messages: resolved, connectionStatus: status, connectedPhone: phone })
 })

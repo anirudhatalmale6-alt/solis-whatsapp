@@ -6,13 +6,13 @@ const STATUS_DIR = path.join(MSG_DIR, 'statuses')
 try { fs.mkdirSync(MSG_DIR, { recursive: true }) } catch {}
 try { fs.mkdirSync(STATUS_DIR, { recursive: true }) } catch {}
 
-function logMessage(businessId, phone, direction, text, waMessageId, contactName) {
+function logMessage(businessId, phone, direction, text, waMessageId, contactName, isLid) {
   try {
     const file = path.join(MSG_DIR, `${businessId}.json`)
     let messages = []
     try { messages = JSON.parse(fs.readFileSync(file, 'utf8')) } catch {}
 
-    const cleanPhone = phone.replace('@s.whatsapp.net', '')
+    const cleanPhone = phone.replace(/@.*/, '')
 
     const entry = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -23,6 +23,7 @@ function logMessage(businessId, phone, direction, text, waMessageId, contactName
       timestamp: new Date().toISOString(),
     }
     if (contactName) entry.contactName = contactName
+    if (isLid) entry.isLid = true
 
     messages.push(entry)
     if (messages.length > 2000) messages = messages.slice(-2000)

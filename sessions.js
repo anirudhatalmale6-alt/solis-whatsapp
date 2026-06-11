@@ -22,6 +22,7 @@ class SessionManager {
     this._reconnecting = new Set()
     this._socketId = new Map()
     this._lidMaps = new Map()
+    this._contactJids = new Map()
 
     if (!fs.existsSync(AUTH_BASE)) {
       fs.mkdirSync(AUTH_BASE, { recursive: true })
@@ -62,9 +63,26 @@ class SessionManager {
 
   resolvePhone(businessId, rawPhone) {
     const clean = rawPhone.replace(/@.*/, '')
-    if (clean.length <= 15) return clean
     const map = this._loadLidMap(businessId)
     return map[clean] || clean
+  }
+
+  _storeContactJid(businessId, storedPhone, fullJid) {
+    if (!this._contactJids.has(businessId)) this._contactJids.set(businessId, {})
+    this._contactJids.get(businessId)[storedPhone] = fullJid
+  }
+
+  _getContactJid(businessId, storedPhone) {
+    const map = this._contactJids.get(businessId)
+    return map?.[storedPhone] || (storedPhone.replace(/[^0-9]/g, '') + '@s.whatsapp.net')
+  }
+
+  isContactLid(businessId, storedPhone) {
+    const map = this._contactJids.get(businessId)
+    const jid = map?.[storedPhone]
+    if (jid) return jid.endsWith('@lid')
+    const lidMap = this._loadLidMap(businessId)
+    return !!lidMap[storedPhone]
   }
 
   getActiveCount() {
@@ -292,16 +310,22 @@ class SessionManager {
         if (!text.trim()) continue
 
         const rawPhone = jid.split('@')[0]
-        const contactPhone = this.resolvePhone(businessId, rawPhone)
+        const isLid = isLidUser(jid)
+        const contactPhone = isLid ? this.resolvePhone(businessId, rawPhone) : rawPhone
         const contactName = msg.pushName || null
+        const phoneMayBeLid = isLid && contactPhone === rawPhone
+
+        this._storeContactJid(businessId, contactPhone, jid)
 
         if (contactPhone !== rawPhone) {
           console.log(`[WA] ${businessId} resolved LID ${rawPhone} -> ${contactPhone}`)
+        } else if (isLid) {
+          console.log(`[WA] ${businessId} unresolved LID: ${rawPhone} (name: ${contactName || 'unknown'})`)
         }
 
         if (msg.key.fromMe) {
           const { logMessage } = require('./messageLog')
-          logMessage(businessId, contactPhone, 'outbound', text.trim(), msg.key.id, contactName)
+          logMessage(businessId, contactPhone, 'outbound', text.trim(), msg.key.id, contactName, phoneMayBeLid)
           continue
         }
 
@@ -317,6 +341,7 @@ class SessionManager {
             jid,
             supabaseUrl: this.supabaseUrl,
             supabaseKey: this.supabaseKey,
+            isLid: phoneMayBeLid,
           })
         } catch (err) {
           console.error(`[WA] ${businessId} handler error:`, err.message)
@@ -375,7 +400,7 @@ class SessionManager {
     const session = this.sessions.get(businessId)
     if (!session?.connected) throw new Error('WhatsApp not connected')
 
-    const jid = phone.replace(/[^0-9]/g, '') + '@s.whatsapp.net'
+    const jid = this._getContactJid(businessId, phone)
     const sent = await session.sock.sendMessage(jid, { text: message })
     return { messageId: sent?.key?.id || null }
   }

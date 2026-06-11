@@ -605,7 +605,7 @@ async function saveBooking(supabaseUrl, supabaseKey, businessId, details) {
   const booking = {
     business_id: businessId,
     customer_name: details.customerName,
-    customer_phone: details.customerPhone.replace('@s.whatsapp.net', ''),
+    customer_phone: details.customerPhone.replace(/@.*/, ''),
     service_id: details.serviceId || null,
     date: date,
     time: time,

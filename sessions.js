@@ -431,6 +431,30 @@ class SessionManager {
     return { messageId: sent?.key?.id || null }
   }
 
+  async sendImage(businessId, phone, imageBuffer, caption) {
+    const session = this.sessions.get(businessId)
+    if (!session?.connected) throw new Error('WhatsApp not connected')
+    const jid = this._getContactJid(businessId, phone)
+    const sent = await session.sock.sendMessage(jid, {
+      image: imageBuffer,
+      caption: caption || '',
+    })
+    return { messageId: sent?.key?.id || null }
+  }
+
+  async sendDocument(businessId, phone, docBuffer, fileName, mimetype, caption) {
+    const session = this.sessions.get(businessId)
+    if (!session?.connected) throw new Error('WhatsApp not connected')
+    const jid = this._getContactJid(businessId, phone)
+    const sent = await session.sock.sendMessage(jid, {
+      document: docBuffer,
+      mimetype: mimetype || 'application/pdf',
+      fileName: fileName || 'document.pdf',
+      caption: caption || '',
+    })
+    return { messageId: sent?.key?.id || null }
+  }
+
   async disconnect(businessId) {
     this._reconnecting.delete(businessId)
     const session = this.sessions.get(businessId)

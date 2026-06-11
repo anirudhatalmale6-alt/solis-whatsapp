@@ -13,7 +13,7 @@ process.on('unhandledRejection', (err) => {
 
 const app = express()
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '10mb' }))
 
 const PORT = process.env.PORT || 3003
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://joeklgpncbrhnujzdzsp.supabase.co'
@@ -85,6 +85,22 @@ app.post('/api/whatsapp/send', async (req, res) => {
   try {
     const result = await sessions.sendMessage(business_id, phone, message)
     logMessage(business_id, phone, 'outbound', message, result?.messageId)
+    res.json({ success: true, messageId: result?.messageId || null })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/whatsapp/send-image', async (req, res) => {
+  const { business_id, phone, image, caption } = req.body
+  if (!business_id || !phone || !image) {
+    return res.status(400).json({ error: 'business_id, phone, image (base64) required' })
+  }
+
+  try {
+    const buffer = Buffer.from(image, 'base64')
+    const result = await sessions.sendImage(business_id, phone, buffer, caption || '')
+    logMessage(business_id, phone, 'outbound', caption || '[Invoice Image]', result?.messageId)
     res.json({ success: true, messageId: result?.messageId || null })
   } catch (err) {
     res.status(500).json({ error: err.message })

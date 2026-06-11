@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys')
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, isLidUser, jidNormalizedUser } = require('@whiskeysockets/baileys')
 const { Boom } = require('@hapi/boom')
 const fs = require('fs')
 const path = require('path')
@@ -7,6 +7,7 @@ const QRCode = require('qrcode')
 const { updateMessageStatus } = require('./messageLog')
 
 const AUTH_BASE = process.env.AUTH_DIR || '/opt/solis-whatsapp/sessions'
+const LID_MAP_DIR = path.join(AUTH_BASE, '_lid_maps')
 
 class SessionManager {
   constructor({ supabaseUrl, supabaseKey, onMessage }) {
@@ -20,10 +21,50 @@ class SessionManager {
     this.pairingCodes = new Map()
     this._reconnecting = new Set()
     this._socketId = new Map()
+    this._lidMaps = new Map()
 
     if (!fs.existsSync(AUTH_BASE)) {
       fs.mkdirSync(AUTH_BASE, { recursive: true })
     }
+    try { fs.mkdirSync(LID_MAP_DIR, { recursive: true }) } catch {}
+  }
+
+  _loadLidMap(businessId) {
+    if (this._lidMaps.has(businessId)) return this._lidMaps.get(businessId)
+    const mapFile = path.join(LID_MAP_DIR, `${businessId}.json`)
+    let map = {}
+    try { map = JSON.parse(fs.readFileSync(mapFile, 'utf8')) } catch {}
+    this._lidMaps.set(businessId, map)
+    return map
+  }
+
+  _saveLidMap(businessId) {
+    const map = this._lidMaps.get(businessId)
+    if (!map) return
+    try {
+      fs.writeFileSync(path.join(LID_MAP_DIR, `${businessId}.json`), JSON.stringify(map))
+    } catch {}
+  }
+
+  _addLidMapping(businessId, lid, phone) {
+    if (!lid || !phone) return
+    const cleanLid = lid.replace(/@.*/, '')
+    const cleanPhone = phone.replace(/@.*/, '')
+    if (cleanLid === cleanPhone) return
+    if (cleanPhone.length > 15) return
+    const map = this._loadLidMap(businessId)
+    if (map[cleanLid] !== cleanPhone) {
+      map[cleanLid] = cleanPhone
+      this._saveLidMap(businessId)
+      console.log(`[WA] ${businessId} LID mapped: ${cleanLid} -> +${cleanPhone}`)
+    }
+  }
+
+  resolvePhone(businessId, rawPhone) {
+    const clean = rawPhone.replace(/@.*/, '')
+    if (clean.length <= 15) return clean
+    const map = this._loadLidMap(businessId)
+    return map[clean] || clean
   }
 
   getActiveCount() {
@@ -204,6 +245,29 @@ class SessionManager {
       }
     })
 
+    sock.ev.on('contacts.upsert', (contacts) => {
+      if (this._socketId.get(businessId) !== socketId) return
+      for (const c of contacts) {
+        if (c.lid && c.jid) this._addLidMapping(businessId, c.lid, c.jid)
+        if (c.id && c.jid && isLidUser(c.id)) this._addLidMapping(businessId, c.id, c.jid)
+        if (c.id && c.lid && !isLidUser(c.id)) this._addLidMapping(businessId, c.lid, c.id)
+      }
+    })
+
+    sock.ev.on('contacts.update', (contacts) => {
+      if (this._socketId.get(businessId) !== socketId) return
+      for (const c of contacts) {
+        if (c.lid && c.jid) this._addLidMapping(businessId, c.lid, c.jid)
+        if (c.id && c.jid && isLidUser(c.id)) this._addLidMapping(businessId, c.id, c.jid)
+        if (c.id && c.lid && !isLidUser(c.id)) this._addLidMapping(businessId, c.lid, c.id)
+      }
+    })
+
+    sock.ev.on('chats.phoneNumberShare', ({ lid, jid }) => {
+      if (this._socketId.get(businessId) !== socketId) return
+      this._addLidMapping(businessId, lid, jid)
+    })
+
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return
       if (this._socketId.get(businessId) !== socketId) return
@@ -227,8 +291,13 @@ class SessionManager {
 
         if (!text.trim()) continue
 
-        const contactPhone = jid.split('@')[0]
+        const rawPhone = jid.split('@')[0]
+        const contactPhone = this.resolvePhone(businessId, rawPhone)
         const contactName = msg.pushName || null
+
+        if (contactPhone !== rawPhone) {
+          console.log(`[WA] ${businessId} resolved LID ${rawPhone} -> ${contactPhone}`)
+        }
 
         if (msg.key.fromMe) {
           const { logMessage } = require('./messageLog')

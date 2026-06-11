@@ -92,10 +92,16 @@ app.post('/api/whatsapp/send', async (req, res) => {
 })
 
 app.get('/api/whatsapp/messages/:businessId', (req, res) => {
-  const messages = getMessages(req.params.businessId)
-  const status = sessions.getStatus(req.params.businessId)
-  const phone = sessions.getPhone(req.params.businessId)
-  res.json({ messages, connectionStatus: status, connectedPhone: phone })
+  const bizId = req.params.businessId
+  const messages = getMessages(bizId)
+  const status = sessions.getStatus(bizId)
+  const phone = sessions.getPhone(bizId)
+  const resolved = messages.map(m => {
+    const resolvedPhone = sessions.resolvePhone(bizId, m.phone)
+    if (resolvedPhone !== m.phone) return { ...m, phone: resolvedPhone }
+    return m
+  })
+  res.json({ messages: resolved, connectionStatus: status, connectedPhone: phone })
 })
 
 app.delete('/api/whatsapp/messages/:businessId/:phone', (req, res) => {
